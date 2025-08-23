@@ -155,16 +155,26 @@ export class BPlusTree<T> {
 	private async ensureLeafChunks(node: BPlusLeafNode<T>): Promise<void> {
 		if (node.chunks !== undefined) return;
 		const flat = (await this.store.get(node.id)) ?? [];
-		const chunks: T[][] = [];
-		for (let i = 0; i < flat.length; i += this.chunkSize) {
-			chunks.push(flat.slice(i, i + this.chunkSize));
-		}
-		node.chunks = chunks;
+		// Lazy re-chunk: keep as a single chunk for reads;
+		// we'll re-slice into chunkSize segments only on first modification
+		node.chunks = [flat];
 		node.count = flat.length;
 		if (flat.length > 0) {
 			node.min = flat[0] as T;
 			node.max = flat[flat.length - 1] as T;
 		}
+	}
+
+	private ensureChunkedForMutation(node: BPlusLeafNode<T>): void {
+		const chunks = node.chunks;
+		if (!chunks || chunks.length !== 1) return;
+		const only = chunks[0] as T[];
+		if (only.length <= this.chunkSize) return;
+		const rechunked: T[][] = [];
+		for (let i = 0; i < only.length; i += this.chunkSize) {
+			rechunked.push(only.slice(i, i + this.chunkSize));
+		}
+		node.chunks = rechunked;
 	}
 
 	private async insertRecursive(
@@ -177,6 +187,7 @@ export class BPlusTree<T> {
 	}> {
 		if (isLeafNode(node)) {
 			await this.ensureLeafChunks(node);
+			this.ensureChunkedForMutation(node);
 			const { posInLeaf, chunkIndex, posInChunk } = this.findInsertPosition(
 				node,
 				value,
