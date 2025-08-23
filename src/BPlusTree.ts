@@ -13,7 +13,6 @@ type BPlusLeafNode<T> = {
 	max: T;
 	count: number;
 	chunks?: T[][];
-	values?: T[]; // fetch from store if not loaded
 	next?: BPlusLeafNode<T>;
 	prev?: BPlusLeafNode<T>;
 };
@@ -82,10 +81,10 @@ export class BPlusTree<T> {
 		let leaf = await this.findLeafForValue(min);
 		if (!leaf) return result;
 		// ensure chunks present
-		this.ensureLeafChunks(leaf);
+		await this.ensureLeafChunks(leaf);
 
 		while (leaf) {
-			this.ensureLeafChunks(leaf);
+			await this.ensureLeafChunks(leaf);
 			const chunks = (leaf.chunks as T[][]) ?? [];
 			for (let ci = 0; ci < chunks.length; ci++) {
 				const chunk = chunks[ci] as T[];
@@ -97,9 +96,7 @@ export class BPlusTree<T> {
 				}
 			}
 			leaf = leaf.next;
-			if (leaf) {
-				this.ensureLeafChunks(leaf);
-			}
+			// next iteration will ensure chunks for the next leaf
 		}
 		return result;
 	}
@@ -132,7 +129,7 @@ export class BPlusTree<T> {
 			current = selectedChild;
 		}
 
-		this.ensureLeafChunks(current);
+		await this.ensureLeafChunks(current);
 		const chunks = (current.chunks as T[][]) ?? [];
 		let idx = currentIndex;
 		for (let ci = 0; ci < chunks.length; ci++) {
@@ -143,13 +140,9 @@ export class BPlusTree<T> {
 		return undefined;
 	}
 
-	private async ensureValuesLoaded(_nodes: BPlusNode<T>[]): Promise<void> {
-		return;
-	}
-
-	private ensureLeafChunks(node: BPlusLeafNode<T>): void {
+	private async ensureLeafChunks(node: BPlusLeafNode<T>): Promise<void> {
 		if (node.chunks !== undefined) return;
-		const flat = node.values ?? [];
+		const flat = (await this.store.get(node.id)) ?? [];
 		const chunks: T[][] = [];
 		for (let i = 0; i < flat.length; i += this.chunkSize) {
 			chunks.push(flat.slice(i, i + this.chunkSize));
@@ -160,7 +153,6 @@ export class BPlusTree<T> {
 			node.min = flat[0] as T;
 			node.max = flat[flat.length - 1] as T;
 		}
-		node.values = undefined;
 	}
 
 	private async insertRecursive(
@@ -172,7 +164,7 @@ export class BPlusTree<T> {
 		split?: [BPlusNode<T>, BPlusNode<T>];
 	}> {
 		if (isLeafNode(node)) {
-			this.ensureLeafChunks(node);
+			await this.ensureLeafChunks(node);
 			const { posInLeaf, chunkIndex, posInChunk } = this.findInsertPosition(
 				node,
 				value,
@@ -253,7 +245,6 @@ export class BPlusTree<T> {
 	private splitLeaf(
 		node: BPlusLeafNode<T>,
 	): [BPlusLeafNode<T>, BPlusLeafNode<T>] {
-		this.ensureLeafChunks(node);
 		const chunks = (node.chunks as T[][]).slice();
 		const total = node.count;
 		const midCount = total >>> 1;
