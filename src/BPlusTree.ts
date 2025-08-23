@@ -12,6 +12,7 @@ type BPlusLeafNode<T> = {
 	min: T;
 	max: T;
 	count: number;
+	chunks?: T[][];
 	values?: T[]; // fetch from store if not loaded
 	next?: BPlusLeafNode<T>;
 	prev?: BPlusLeafNode<T>;
@@ -20,7 +21,7 @@ type BPlusLeafNode<T> = {
 type BPlusNode<T> = BPlusInternalNode<T> | BPlusLeafNode<T>;
 
 function isLeafNode<T>(node: BPlusNode<T>): node is BPlusLeafNode<T> {
-	return "values" in node;
+	return "id" in (node as object);
 }
 
 function defaultCmp<T>(a: T, b: T): number {
@@ -31,13 +32,16 @@ export class BPlusTree<T> {
 	root: BPlusNode<T> | undefined;
 	dirty = new Set<BPlusLeafNode<T>>();
 	private nextLeafId = 0;
+	private readonly chunkSize: number;
 
 	constructor(
 		private store: IStore<T>,
 		private maxValues: number,
 		private maxChildren: number,
 		private cmp: (a: T, b: T) => number = defaultCmp,
-	) {}
+	) {
+		this.chunkSize = Math.min(2048, Math.max(16, this.maxValues));
+	}
 
 	async insert(value: T): Promise<number> {
 		if (!this.root) {
@@ -46,7 +50,7 @@ export class BPlusTree<T> {
 				min: value,
 				max: value,
 				count: 1,
-				values: [value],
+				chunks: [[value]],
 			};
 			// await this.store.set(leaf.id, [value]);
 			this.dirty.add(leaf);
@@ -77,19 +81,24 @@ export class BPlusTree<T> {
 
 		let leaf = await this.findLeafForValue(min);
 		if (!leaf) return result;
-		await this.ensureValuesLoaded([leaf]);
+		// ensure chunks present
+		this.ensureLeafChunks(leaf);
 
 		while (leaf) {
-			const values: T[] = (leaf.values ?? []) as T[];
-			for (let i = 0; i < values.length; i++) {
-				const v = values[i] as T;
-				if (this.cmp(v, min) < 0) continue;
-				if (this.cmp(v, max) > 0) return result;
-				result.push(v);
+			this.ensureLeafChunks(leaf);
+			const chunks = (leaf.chunks as T[][]) ?? [];
+			for (let ci = 0; ci < chunks.length; ci++) {
+				const chunk = chunks[ci] as T[];
+				for (let i = 0; i < chunk.length; i++) {
+					const v = chunk[i] as T;
+					if (this.cmp(v, min) < 0) continue;
+					if (this.cmp(v, max) > 0) return result;
+					result.push(v);
+				}
 			}
 			leaf = leaf.next;
 			if (leaf) {
-				await this.ensureValuesLoaded([leaf]);
+				this.ensureLeafChunks(leaf);
 			}
 		}
 		return result;
@@ -123,19 +132,35 @@ export class BPlusTree<T> {
 			current = selectedChild;
 		}
 
-		await this.ensureValuesLoaded([current]);
-		const values: T[] = (current.values ?? []) as T[];
-		return values[currentIndex];
+		this.ensureLeafChunks(current);
+		const chunks = (current.chunks as T[][]) ?? [];
+		let idx = currentIndex;
+		for (let ci = 0; ci < chunks.length; ci++) {
+			const chunk = chunks[ci] as T[];
+			if (idx < chunk.length) return chunk[idx] as T;
+			idx -= chunk.length;
+		}
+		return undefined;
 	}
 
-	private async ensureValuesLoaded(nodes: BPlusNode<T>[]): Promise<void> {
-		await Promise.all(
-			nodes.filter(isLeafNode).map(async (node) => {
-				if (node.values === undefined) {
-					node.values = (await this.store.get(node.id)) ?? [];
-				}
-			}),
-		);
+	private async ensureValuesLoaded(_nodes: BPlusNode<T>[]): Promise<void> {
+		return;
+	}
+
+	private ensureLeafChunks(node: BPlusLeafNode<T>): void {
+		if (node.chunks !== undefined) return;
+		const flat = node.values ?? [];
+		const chunks: T[][] = [];
+		for (let i = 0; i < flat.length; i += this.chunkSize) {
+			chunks.push(flat.slice(i, i + this.chunkSize));
+		}
+		node.chunks = chunks;
+		node.count = flat.length;
+		if (flat.length > 0) {
+			node.min = flat[0] as T;
+			node.max = flat[flat.length - 1] as T;
+		}
+		node.values = undefined;
 	}
 
 	private async insertRecursive(
@@ -147,32 +172,36 @@ export class BPlusTree<T> {
 		split?: [BPlusNode<T>, BPlusNode<T>];
 	}> {
 		if (isLeafNode(node)) {
-			await this.ensureValuesLoaded([node]);
-			const values = node.values ?? [];
-			const pos = this.lowerBound(values, value);
-			values.splice(pos, 0, value);
-			node.values = values;
-			node.count = values.length;
-			if (values.length === 0) {
-				throw new Error(
-					"Invariant violation: leaf must not be empty after insert",
-				);
+			this.ensureLeafChunks(node);
+			const { posInLeaf, chunkIndex, posInChunk } = this.findInsertPosition(
+				node,
+				value,
+			);
+			const chunks = node.chunks as T[][];
+			const chunk = chunks[chunkIndex] as T[];
+			if (posInChunk === chunk.length) chunk.push(value);
+			else chunk.splice(posInChunk, 0, value);
+			node.count += 1;
+			if (this.cmp(value, node.min) < 0) node.min = value;
+			if (this.cmp(value, node.max) > 0) node.max = value;
+			if (chunk.length > this.chunkSize) {
+				const mid = chunk.length >>> 1;
+				const left = chunk.slice(0, mid);
+				const right = chunk.slice(mid);
+				chunks.splice(chunkIndex, 1, left, right);
 			}
-			node.min = values[0] as T;
-			node.max = values[values.length - 1] as T;
-			// await this.store.set(node.id, values);
 			this.dirty.add(node);
 
-			if (values.length > this.maxValues) {
+			if (node.count > this.maxValues) {
 				const [left, right] = this.splitLeaf(node);
 				return {
 					node: left,
-					insertedIndex: pos, // relative to subtree root; caller will adjust
+					insertedIndex: posInLeaf,
 					split: [left, right],
 				};
 			}
 
-			return { node, insertedIndex: pos };
+			return { node, insertedIndex: posInLeaf };
 		}
 
 		// Internal node
@@ -224,45 +253,70 @@ export class BPlusTree<T> {
 	private splitLeaf(
 		node: BPlusLeafNode<T>,
 	): [BPlusLeafNode<T>, BPlusLeafNode<T>] {
-		const values = node.values ?? [];
-		const mid = Math.floor(values.length / 2);
-		const leftValues = values.slice(0, mid);
-		const rightValues = values.slice(mid);
-		if (leftValues.length === 0 || rightValues.length === 0) {
+		this.ensureLeafChunks(node);
+		const chunks = (node.chunks as T[][]).slice();
+		const total = node.count;
+		const midCount = total >>> 1;
+		let acc = 0;
+		const leftChunks: T[][] = [];
+		const rightChunks: T[][] = [];
+		for (let i = 0; i < chunks.length; i++) {
+			const c = chunks[i] as T[];
+			if (acc + c.length <= midCount) {
+				leftChunks.push(c);
+				acc += c.length;
+			} else if (acc < midCount) {
+				const cut = midCount - acc;
+				leftChunks.push(c.slice(0, cut));
+				rightChunks.push(c.slice(cut));
+				acc = midCount;
+			} else {
+				rightChunks.push(c);
+			}
+		}
+		const leftCount = midCount;
+		const rightCount = total - midCount;
+		if (leftCount <= 0 || rightCount <= 0) {
 			throw new Error("Invariant violation: split produced empty leaf");
 		}
 
 		const prevNeighbor = node.prev;
 		const nextNeighbor = node.next;
 
+		const leftFirstChunk = leftChunks[0] as T[];
+		const leftMin = leftFirstChunk[0] as T;
+		const leftLastChunk = leftChunks[leftChunks.length - 1] as T[];
+		const leftMax = leftLastChunk[leftLastChunk.length - 1] as T;
+
+		const rightFirstChunk = rightChunks[0] as T[];
+		const rightMin = rightFirstChunk[0] as T;
+		const rightLastChunk = rightChunks[rightChunks.length - 1] as T[];
+		const rightMax = rightLastChunk[rightLastChunk.length - 1] as T;
+
 		const left: BPlusLeafNode<T> = {
 			id: node.id,
-			min: leftValues[0] as T,
-			max: leftValues[leftValues.length - 1] as T,
-			count: leftValues.length,
-			values: leftValues,
+			min: leftMin,
+			max: leftMax,
+			count: leftCount,
+			chunks: leftChunks,
 			prev: prevNeighbor,
 			next: undefined as BPlusLeafNode<T> | undefined,
 		};
 
 		const right: BPlusLeafNode<T> = {
 			id: this.generateLeafId(),
-			min: rightValues[0] as T,
-			max: rightValues[rightValues.length - 1] as T,
-			count: rightValues.length,
-			values: rightValues,
+			min: rightMin,
+			max: rightMax,
+			count: rightCount,
+			chunks: rightChunks,
 			prev: left,
 			next: nextNeighbor,
 		};
 
 		left.next = right;
-		// Reconnect neighbors to new nodes
 		if (prevNeighbor) prevNeighbor.next = left;
 		if (nextNeighbor) nextNeighbor.prev = right;
 
-		// Persist both halves
-		// void this.store.set(left.id, left.values ?? []);
-		// void this.store.set(right.id, right.values ?? []);
 		this.dirty.add(left);
 		this.dirty.add(right);
 
@@ -333,6 +387,32 @@ export class BPlusTree<T> {
 			else high = mid;
 		}
 		return low;
+	}
+
+	private findInsertPosition(
+		leaf: BPlusLeafNode<T>,
+		value: T,
+	): { posInLeaf: number; chunkIndex: number; posInChunk: number } {
+		const chunks = (leaf.chunks as T[][]) ?? [];
+		let pos = 0;
+		for (let ci = 0; ci < chunks.length; ci++) {
+			const chunk = chunks[ci] as T[];
+			const last = chunk[chunk.length - 1] as T;
+			if (this.cmp(value, last) <= 0) {
+				const local = this.lowerBound(chunk, value);
+				return { posInLeaf: pos + local, chunkIndex: ci, posInChunk: local };
+			}
+			pos += chunk.length;
+		}
+		if (chunks.length === 0) {
+			leaf.chunks = [[value]];
+			return { posInLeaf: 0, chunkIndex: 0, posInChunk: 0 };
+		}
+		return {
+			posInLeaf: pos,
+			chunkIndex: chunks.length - 1,
+			posInChunk: (chunks[chunks.length - 1] as T[]).length,
+		};
 	}
 
 	private generateLeafId(): string {

@@ -42,6 +42,33 @@ function hash32(input: number): number {
 	return x >>> 0;
 }
 
+function bucketDistribution(
+	dist: Map<number, number>,
+	bucketTarget = 32,
+): Array<{ start: number; end: number; count: number }> {
+	if (dist.size === 0) return [];
+	const sizes = Array.from(dist.keys()).sort((a, b) => a - b);
+	const minSize = sizes[0] as number;
+	const maxSize = sizes[sizes.length - 1] as number;
+	const totalLeaves = Array.from(dist.values()).reduce((a, b) => a + b, 0);
+	const bins = Math.max(
+		8,
+		Math.min(bucketTarget, Math.ceil(Math.sqrt(totalLeaves))),
+	);
+	const width = Math.max(1, Math.ceil((maxSize - minSize + 1) / bins));
+	const buckets = new Map<number, number>();
+	for (const [size, count] of dist.entries()) {
+		const bucketStart = minSize + Math.floor((size - minSize) / width) * width;
+		buckets.set(bucketStart, (buckets.get(bucketStart) ?? 0) + count);
+	}
+	const out: Array<{ start: number; end: number; count: number }> = [];
+	const starts = Array.from(buckets.keys()).sort((a, b) => a - b);
+	for (const start of starts) {
+		out.push({ start, end: start + width - 1, count: buckets.get(start) ?? 0 });
+	}
+	return out;
+}
+
 async function runOnce(config: BenchConfig): Promise<void> {
 	const store = new MemoryStore<number>();
 	const tree = new BPlusTree<number>(
@@ -85,7 +112,12 @@ async function runOnce(config: BenchConfig): Promise<void> {
 	const ips = TOTAL / secs;
 
 	// Verify the inserted sort order by comparing the tree's in-order output to the multiset counts
+	const rangeFullStart = performance.now();
 	const sortedOut = await tree.range(minVal, maxVal);
+	const rangeFullEnd = performance.now();
+	const rangeFullMs = rangeFullEnd - rangeFullStart;
+	const rangeFullPerSec = sortedOut.length / (rangeFullMs / 1000);
+
 	let isNonDecreasing = true;
 	let prev = sortedOut[0] as number;
 	if (sortedOut.length !== TOTAL) isNonDecreasing = false;
@@ -112,28 +144,51 @@ async function runOnce(config: BenchConfig): Promise<void> {
 	}
 	const verified = isNonDecreasing && allCountsZero;
 
+	// Random range query performance
+	const NUM_RANGES = 64;
+	let totalRangeCount = 0;
+	const rqStart = performance.now();
+	for (let i = 0; i < NUM_RANGES; i++) {
+		const a = values[Math.floor(rng() * values.length)] as number;
+		const b = values[Math.floor(rng() * values.length)] as number;
+		const lo = a <= b ? a : b;
+		const hi = a <= b ? b : a;
+		const out = await tree.range(lo, hi);
+		totalRangeCount += out.length;
+	}
+	const rqEnd = performance.now();
+	const rqMs = rqEnd - rqStart;
+	const rqAvgMs = rqMs / NUM_RANGES;
+	const rqItemsPerSec = totalRangeCount / (rqMs / 1000);
+
 	const {
 		totalNodes: total,
 		internalNodes: internal,
 		leafNodes: leaves,
 		leafSizeDistribution: dist,
 	} = tree.debugStats();
-	const sortedSizes = Array.from(dist.entries()).sort((a, b) => a[0] - b[0]);
+	const grouped = bucketDistribution(dist, 24);
 
 	console.log("\n=== B+Tree Bench ===");
 	console.log(
 		`maxValues=${config.maxValues} maxChildren=${config.maxChildren}`,
 	);
 	console.log(`inserted: ${formatNumber(TOTAL)} values`);
-	console.log(`total time: ${ms.toFixed(2)} ms (${secs.toFixed(2)} s)`);
+	console.log(`insert total: ${ms.toFixed(2)} ms (${secs.toFixed(2)} s)`);
 	console.log(`insert/s: ${formatNumber(Math.floor(ips))}`);
 	console.log(`verified sorted order: ${verified}`);
 	console.log(
+		`range(full) ${rangeFullMs.toFixed(2)} ms, items/s: ${formatNumber(Math.floor(rangeFullPerSec))}`,
+	);
+	console.log(
+		`ranges(${NUM_RANGES}) avg ${rqAvgMs.toFixed(2)} ms, total ${rqMs.toFixed(2)} ms, items/s: ${formatNumber(Math.floor(rqItemsPerSec))}`,
+	);
+	console.log(
 		`nodes: total=${formatNumber(total)} internal=${formatNumber(internal)} leaves=${formatNumber(leaves)}`,
 	);
-	console.log("leaf size distribution (size -> leaf count):");
-	for (const [size, count] of sortedSizes) {
-		console.log(`  ${size} -> ${formatNumber(count)}`);
+	console.log("leaf size histogram (bucketed):");
+	for (const b of grouped) {
+		console.log(`  ${b.start}..${b.end} -> ${formatNumber(b.count)}`);
 	}
 }
 
