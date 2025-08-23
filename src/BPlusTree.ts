@@ -42,6 +42,20 @@ export class BPlusTree<T> {
 		this.chunkSize = Math.min(2048, Math.max(16, this.maxValues));
 	}
 
+	// Persist all dirty leaves to the backing store
+	async flush(): Promise<void> {
+		for (const leaf of this.dirty) {
+			const chunks = leaf.chunks ?? [];
+			const flat: T[] = [];
+			for (let i = 0; i < chunks.length; i++) {
+				const c = chunks[i] as T[];
+				for (let j = 0; j < c.length; j++) flat.push(c[j] as T);
+			}
+			await this.store.set(leaf.id, flat);
+		}
+		this.dirty.clear();
+	}
+
 	async insert(value: T): Promise<number> {
 		if (!this.root) {
 			const leaf: BPlusLeafNode<T> = {
@@ -80,8 +94,6 @@ export class BPlusTree<T> {
 
 		let leaf = await this.findLeafForValue(min);
 		if (!leaf) return result;
-		// ensure chunks present
-		await this.ensureLeafChunks(leaf);
 
 		while (leaf) {
 			await this.ensureLeafChunks(leaf);
@@ -359,13 +371,23 @@ export class BPlusTree<T> {
 	};
 
 	private findChildIndexForValue(node: BPlusInternalNode<T>, value: T): number {
-		// Children are ordered by min/max; pick first child whose max >= value
-		for (let i = 0; i < node.children.length; i++) {
-			const child = node.children[i];
-			if (!child) continue;
-			if (this.cmp(value, child.max) <= 0) return i;
+		// Binary search: first index with child.max >= value
+		const children = node.children;
+		if (children.length === 0) return 0;
+		let low = 0;
+		let high = children.length; // exclusive
+		while (low < high) {
+			const mid = (low + high) >>> 1;
+			const child = children[mid];
+			if (!child) {
+				// Should not happen; fallback to linear on rare undefined
+				break;
+			}
+			if (this.cmp(value, child.max) <= 0) high = mid;
+			else low = mid + 1;
 		}
-		return node.children.length - 1;
+		const idx = low < children.length ? low : children.length - 1;
+		return idx;
 	}
 
 	private lowerBound(values: readonly T[], value: T): number {
@@ -421,12 +443,13 @@ export class BPlusTree<T> {
 	} {
 		let internalNodes = 0;
 		let leafNodes = 0;
+		const leafSizeDistribution = new Map<number, number>();
 		if (!this.root) {
 			return {
 				totalNodes: 0,
 				internalNodes: 0,
 				leafNodes: 0,
-				leafSizeDistribution: new Map(),
+				leafSizeDistribution,
 			};
 		}
 
@@ -435,6 +458,11 @@ export class BPlusTree<T> {
 			const node = stack.pop() as BPlusNode<T>;
 			if (isLeafNode(node)) {
 				leafNodes += 1;
+				const size = node.count;
+				leafSizeDistribution.set(
+					size,
+					(leafSizeDistribution.get(size) ?? 0) + 1,
+				);
 			} else {
 				internalNodes += 1;
 				for (let i = 0; i < node.children.length; i++) {
@@ -444,27 +472,11 @@ export class BPlusTree<T> {
 			}
 		}
 
-		// Leaf size histogram using a full DFS to avoid depending on next/prev correctness
-		const dist = new Map<number, number>();
-		const stack2: BPlusNode<T>[] = [this.root];
-		while (stack2.length) {
-			const n = stack2.pop() as BPlusNode<T>;
-			if (isLeafNode(n)) {
-				const size = n.count;
-				dist.set(size, (dist.get(size) ?? 0) + 1);
-			} else {
-				for (let i = 0; i < n.children.length; i++) {
-					const c = n.children[i];
-					if (c) stack2.push(c);
-				}
-			}
-		}
-
 		return {
 			totalNodes: internalNodes + leafNodes,
 			internalNodes,
 			leafNodes,
-			leafSizeDistribution: dist,
+			leafSizeDistribution,
 		};
 	}
 }
