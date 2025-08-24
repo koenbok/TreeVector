@@ -1,5 +1,6 @@
 import { BPlusTree } from "./BPlusTree";
 import { MemoryStore } from "./Store";
+import { SegmentedColumn } from "./SegmentedColumn";
 
 type BenchConfig = { maxValues: number; maxChildren: number };
 
@@ -113,7 +114,7 @@ async function runOnce(config: BenchConfig): Promise<void> {
 
 	// Verify the inserted sort order by comparing the tree's in-order output to the multiset counts
 	const rangeFullStart = performance.now();
-	const sortedOut = await tree.range(minVal, maxVal);
+	const sortedOut = await tree.scan(minVal, maxVal);
 	const rangeFullEnd = performance.now();
 	const rangeFullMs = rangeFullEnd - rangeFullStart;
 	const rangeFullPerSec = sortedOut.length / (rangeFullMs / 1000);
@@ -153,7 +154,7 @@ async function runOnce(config: BenchConfig): Promise<void> {
 		const b = values[Math.floor(rng() * values.length)] as number;
 		const lo = a <= b ? a : b;
 		const hi = a <= b ? b : a;
-		const out = await tree.range(lo, hi);
+		const out = await tree.scan(lo, hi);
 		totalRangeCount += out.length;
 	}
 	const rqEnd = performance.now();
@@ -192,12 +193,131 @@ async function runOnce(config: BenchConfig): Promise<void> {
 	}
 }
 
+async function runOnceSegmented(config: BenchConfig): Promise<void> {
+	const store = new MemoryStore<number>();
+	// Use a smaller segment target for the demo so 1,000,000 inserts create multiple segments
+	const col = new SegmentedColumn<number>(
+		store,
+		undefined as unknown as (a: number, b: number) => number,
+		256 * 1024,
+		8,
+	);
+
+	// Build deterministic values with ~95% unique: 1 in 20 positions duplicates a prior value
+	const seed =
+		0x12345678 ^ (config.maxValues * 31) ^ (config.maxChildren * 131);
+	const rng = mulberry32(seed);
+	const values = new Array<number>(TOTAL);
+	const counts = new Map<number, number>();
+	let minVal = Number.POSITIVE_INFINITY;
+	let maxVal = Number.NEGATIVE_INFINITY;
+	for (let i = 0; i < TOTAL; i++) {
+		let v: number;
+		if (i > 0 && i % 20 === 0) {
+			// duplicate from an earlier index
+			const j = Math.floor(rng() * i);
+			v = values[j] as number;
+		} else {
+			// deterministically unique-like number via mixing i and seed
+			v = hash32(i ^ seed);
+		}
+		values[i] = v;
+		if (v < minVal) minVal = v;
+		if (v > maxVal) maxVal = v;
+		counts.set(v, (counts.get(v) ?? 0) + 1);
+	}
+
+	const start = performance.now();
+	for (let i = 0; i < TOTAL; i++) {
+		await col.insert(values[i] as number);
+	}
+	const end = performance.now();
+
+	const ms = end - start;
+	const secs = ms / 1000;
+	const ips = TOTAL / secs;
+
+	// Verify
+	const rangeFullStart = performance.now();
+	const sortedOut = await col.range(minVal, maxVal);
+	const rangeFullEnd = performance.now();
+	const rangeFullMs = rangeFullEnd - rangeFullStart;
+	const rangeFullPerSec = sortedOut.length / (rangeFullMs / 1000);
+
+	let isNonDecreasing = true;
+	let prev = sortedOut[0] as number;
+	if (sortedOut.length !== TOTAL) isNonDecreasing = false;
+	for (let i = 0; i < sortedOut.length; i++) {
+		const cur = sortedOut[i] as number;
+		if (i > 0 && cur < prev) {
+			isNonDecreasing = false;
+			break;
+		}
+		prev = cur;
+		const c = counts.get(cur);
+		if (c === undefined || c <= 0) {
+			isNonDecreasing = false;
+			break;
+		}
+		counts.set(cur, c - 1);
+	}
+	let allCountsZero = true;
+	for (const val of counts.values()) {
+		if (val !== 0) {
+			allCountsZero = false;
+			break;
+		}
+	}
+	const verified = isNonDecreasing && allCountsZero;
+
+	// Random range query performance
+	const NUM_RANGES = 64;
+	let totalRangeCount = 0;
+	const rqStart = performance.now();
+	for (let i = 0; i < NUM_RANGES; i++) {
+		const a = values[Math.floor(rng() * values.length)] as number;
+		const b = values[Math.floor(rng() * values.length)] as number;
+		const lo = a <= b ? a : b;
+		const hi = a <= b ? b : a;
+		const out = await col.range(lo, hi);
+		totalRangeCount += out.length;
+	}
+	const rqEnd = performance.now();
+	const rqMs = rqEnd - rqStart;
+	const rqAvgMs = rqMs / NUM_RANGES;
+	const rqItemsPerSec = totalRangeCount / (rqMs / 1000);
+
+	const { segments, segmentSizes } = col.debugStats();
+	const grouped = bucketDistribution(segmentSizes, 24);
+
+	console.log("\n=== SegmentedColumn Bench ===");
+	console.log(
+		`params: seedFrom(maxValues=${config.maxValues}, maxChildren=${config.maxChildren})`,
+	);
+	console.log(`inserted: ${formatNumber(TOTAL)} values`);
+	console.log(`insert total: ${ms.toFixed(2)} ms (${secs.toFixed(2)} s)`);
+	console.log(`insert/s: ${formatNumber(Math.floor(ips))}`);
+	console.log(`verified sorted order: ${verified}`);
+	console.log(
+		`range(full) ${rangeFullMs.toFixed(2)} ms, items/s: ${formatNumber(Math.floor(rangeFullPerSec))}`,
+	);
+	console.log(
+		`ranges(${NUM_RANGES}) avg ${rqAvgMs.toFixed(2)} ms, total ${rqMs.toFixed(2)} ms, items/s: ${formatNumber(Math.floor(rqItemsPerSec))}`,
+	);
+	console.log(`segments: ${formatNumber(segments)}`);
+	console.log("segment size histogram (bucketed):");
+	for (const b of grouped) {
+		console.log(`  ${b.start}..${b.end} -> ${formatNumber(b.count)}`);
+	}
+}
+
 async function main(): Promise<void> {
 	console.log(
-		`Running B+Tree benchmarks for ${CONFIGS.length} configuration(s) with ${formatNumber(TOTAL)} inserts each...`,
+		`Running benchmarks for ${CONFIGS.length} configuration(s) with ${formatNumber(TOTAL)} inserts each...`,
 	);
 	for (const cfg of CONFIGS) {
 		await runOnce(cfg);
+		await runOnceSegmented(cfg);
 	}
 }
 

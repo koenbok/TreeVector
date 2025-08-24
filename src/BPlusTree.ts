@@ -43,7 +43,7 @@ export class BPlusTree<T> {
 	}
 
 	// Persist all dirty leaves to the backing store
-	async flush(): Promise<void> {
+	async flush(): Promise<string[]> {
 		for (const leaf of this.dirty) {
 			const chunks = leaf.chunks ?? [];
 			const flat: T[] = [];
@@ -53,7 +53,9 @@ export class BPlusTree<T> {
 			}
 			await this.store.set(leaf.id, flat);
 		}
+		const keys = Array.from(this.dirty.values()).map((leaf) => leaf.id);
 		this.dirty.clear();
+		return keys;
 	}
 
 	async insert(value: T): Promise<number> {
@@ -88,7 +90,82 @@ export class BPlusTree<T> {
 		return result.insertedIndex;
 	}
 
-	async range(min: T, max: T): Promise<T[]> {
+	async range(min: number, max: number): Promise<T[]> {
+		const result: T[] = [];
+		if (!this.root) return result;
+
+		const startIndex = Math.max(0, min);
+		let endIndex = max;
+		if (endIndex <= startIndex) return result;
+		if (startIndex >= this.root.count) return result;
+		if (endIndex > this.root.count) endIndex = this.root.count;
+
+		// Find the leaf and local index for startIndex
+		let node: BPlusNode<T> = this.root;
+		let indexInNode = startIndex;
+		while (!isLeafNode(node)) {
+			let accumulated = 0;
+			let selectedChild: BPlusNode<T> | undefined;
+			for (let i = 0; i < node.children.length; i++) {
+				const child = node.children[i];
+				if (!child) continue;
+				if (accumulated + child.count > indexInNode) {
+					selectedChild = child;
+					indexInNode -= accumulated;
+					break;
+				}
+				accumulated += child.count;
+			}
+			if (!selectedChild) {
+				const fallback = node.children[node.children.length - 1];
+				if (!fallback) return result;
+				selectedChild = fallback;
+				indexInNode -= Math.max(0, accumulated - fallback.count);
+			}
+			node = selectedChild;
+		}
+
+		let leaf: BPlusLeafNode<T> | undefined = node;
+		let localIndex = indexInNode;
+		let remaining = endIndex - startIndex;
+
+		while (leaf && remaining > 0) {
+			await this.ensureLeafChunks(leaf);
+			const chunks = (leaf.chunks as T[][]) ?? [];
+			let chunkIndex = 0;
+			// Skip whole chunks until we reach the chunk containing localIndex
+			while (
+				chunkIndex < chunks.length &&
+				localIndex >= (chunks[chunkIndex] as T[]).length
+			) {
+				localIndex -= (chunks[chunkIndex] as T[]).length;
+				chunkIndex += 1;
+			}
+
+			for (; chunkIndex < chunks.length && remaining > 0; chunkIndex++) {
+				const chunk = chunks[chunkIndex] as T[];
+				const startPos = localIndex;
+				const takeCount = Math.min(
+					remaining,
+					Math.max(0, chunk.length - startPos),
+				);
+				for (let i = 0; i < takeCount; i++) {
+					result.push(chunk[startPos + i] as T);
+				}
+				remaining -= takeCount;
+				localIndex = 0;
+			}
+
+			if (remaining > 0) {
+				leaf = leaf.next;
+				localIndex = 0;
+			}
+		}
+
+		return result;
+	}
+
+	async scan(min: T, max: T): Promise<T[]> {
 		const result: T[] = [];
 		if (!this.root) return result;
 
@@ -111,6 +188,39 @@ export class BPlusTree<T> {
 			// next iteration will ensure chunks for the next leaf
 		}
 		return result;
+	}
+
+	async getIndex(value: T): Promise<number> {
+		if (!this.root) return 0;
+
+		let node: BPlusNode<T> = this.root;
+		let offset = 0;
+		while (!isLeafNode(node)) {
+			const idx = this.findChildIndexForValue(node, value);
+			for (let i = 0; i < idx; i++) {
+				const child = node.children[i];
+				if (child) offset += child.count;
+			}
+			const next = node.children[idx];
+			if (!next)
+				throw new Error("Invariant violation: child not found during getIndex");
+			node = next;
+		}
+
+		await this.ensureLeafChunks(node);
+		const chunks = (node.chunks as T[][]) ?? [];
+		let posInLeaf = 0;
+		for (let ci = 0; ci < chunks.length; ci++) {
+			const chunk = chunks[ci] as T[];
+			if (chunk.length === 0) continue;
+			const last = chunk[chunk.length - 1] as T;
+			if (this.cmp(value, last) <= 0) {
+				posInLeaf += this.lowerBound(chunk, value);
+				return offset + posInLeaf;
+			}
+			posInLeaf += chunk.length;
+		}
+		return offset + posInLeaf;
 	}
 
 	async get(index: number): Promise<T | undefined> {
