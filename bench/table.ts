@@ -1,18 +1,17 @@
-import { Table } from "./Table";
+import { Table } from "../src/Table";
 import {
 	FenwickOrderedColumn,
 	FenwickColumn,
 	type IndexedColumnInterface,
 	type OrderedColumnInterface,
-} from "./Column";
-import { MemoryStore, type IStore } from "./Store";
+} from "../src/Column";
+import { MemoryStore, type IStore } from "../src/Store";
 
 type Row = { id: number; a: number; b: number; c: number };
 
 const TOTAL_ROWS = 300_000;
 const BATCH_SIZE = 10_000;
 
-// Deterministic PRNGs (copied from bench.ts for consistency)
 function mulberry32(seed: number): () => number {
 	let t = seed >>> 0;
 	return function rand(): number {
@@ -39,7 +38,6 @@ function formatNumber(n: number): string {
 }
 
 function buildRows(): Row[] {
-	// Build deterministic rows: ~1 in 20 ids duplicates a prior id
 	const seed = 0xc0ffee ^ 64 ^ 10_000;
 	const rng = mulberry32(seed);
 	const ids = new Array<number>(TOTAL_ROWS);
@@ -102,9 +100,6 @@ async function runScenario(
 
 async function main(): Promise<void> {
 	const rows = buildRows();
-
-	// CLI: bun run src/table-bench.ts [segmentN] [chunkN]
-	// segmentN or chunkN can be comma-separated lists to sweep
 	const segArg = process.argv[2];
 	const chunkArg = process.argv[3];
 	const segList = (segArg ? segArg.split(",") : ["8192"]).map((s) => Number(s));

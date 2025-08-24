@@ -1,11 +1,12 @@
-import { FenwickOrderedList } from "./FenwickOrderedList";
-import { MemoryStore } from "./Store";
-import { ChunkingStore } from "./ChunkingStore";
+import { FenwickOrderedList } from "../src/FenwickOrderedList";
+import { MemoryStore } from "../src/Store";
 
-// Defaults (override with CLI: bun run src/fenwick-ordered-bench.ts 1000000 8192)
+// Defaults (override with CLI: bun run bench/ordered-list.ts 1000000 8192)
 const TOTAL = Number(process.argv[2] ?? 1_000_000);
 const MAX_PER_SEGMENT = Number(process.argv[3] ?? 8192);
-const SEGMENTS_PER_CHUNK = process.argv[4] ? Number(process.argv[4]) : undefined;
+const SEGMENTS_PER_CHUNK = process.argv[4]
+	? Number(process.argv[4])
+	: undefined;
 const DUP_RATE = 0.05; // 5% duplicates → ~95% unique
 
 function mulberry32(seed: number): () => number {
@@ -94,11 +95,13 @@ async function main(): Promise<void> {
 	console.log(`maxValuesPerSegment: ${formatNumber(MAX_PER_SEGMENT)}`);
 
 	const values = buildValues(TOTAL, DUP_RATE);
-	const baseStore = new MemoryStore();
-	const store = SEGMENTS_PER_CHUNK
-		? new ChunkingStore(baseStore, SEGMENTS_PER_CHUNK)
-		: baseStore;
-	const list = new FenwickOrderedList<number>(store, MAX_PER_SEGMENT);
+	const store = new MemoryStore();
+	const list = new FenwickOrderedList<number>(
+		store,
+		MAX_PER_SEGMENT,
+		(a, b) => (a < b ? -1 : a > b ? 1 : 0),
+		SEGMENTS_PER_CHUNK,
+	);
 
 	// Insert and time
 	const t0 = performance.now();
@@ -138,8 +141,14 @@ async function main(): Promise<void> {
 	const segSizes: number[] = [];
 	for (const key of dirtyKeys) {
 		// eslint-disable-next-line no-await-in-loop
-		const seg = (await store.get(key)) ?? [];
-		segSizes.push(seg.length);
+		const rec =
+			(await store.get<{ segments?: Record<number, number[]> }>(key)) ?? {};
+		if (rec.segments) {
+			for (const arr of Object.values(rec.segments)) segSizes.push(arr.length);
+		} else {
+			const seg = (await store.get<number[]>(key)) ?? [];
+			segSizes.push(seg.length);
+		}
 	}
 	segSizes.sort((a, b) => a - b);
 	const segTotal = segSizes.length;

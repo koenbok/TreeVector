@@ -20,7 +20,7 @@ export interface IndexedColumnInterface<T> {
 
 export class FenwickColumn<T> implements IndexedColumnInterface<T> {
 	private list: FenwickList<T>;
-	constructor(store: IStore<T>, maxValuesPerSegment: number) {
+	constructor(store: IStore, maxValuesPerSegment: number) {
 		this.list = new FenwickList<T>(store, maxValuesPerSegment);
 	}
 	async insert(index: number, value: T): Promise<void> {
@@ -39,7 +39,7 @@ export class FenwickColumn<T> implements IndexedColumnInterface<T> {
 
 export class FenwickOrderedColumn<T> implements OrderedColumnInterface<T> {
 	private list: FenwickOrderedList<T>;
-	constructor(store: IStore<T>, maxValuesPerSegment: number) {
+	constructor(store: IStore, maxValuesPerSegment: number) {
 		this.list = new FenwickOrderedList<T>(store, maxValuesPerSegment);
 	}
 	async insert(value: T): Promise<number> {

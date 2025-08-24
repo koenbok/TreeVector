@@ -15,7 +15,9 @@ export class ChunkingStore implements IStore {
 		const segId = this.parseSegmentId(key);
 		if (segId === undefined) return this.base.get<T>(key);
 		const chunkKey = this.chunkKeyFor(segId);
-		const chunk = (await this.base.get<ChunkRecord>(chunkKey)) ?? { segments: {} };
+		const chunk = (await this.base.get<ChunkRecord>(chunkKey)) ?? {
+			segments: {},
+		};
 		return chunk.segments[segId] as T | undefined;
 	}
 
@@ -26,7 +28,9 @@ export class ChunkingStore implements IStore {
 			return;
 		}
 		const chunkKey = this.chunkKeyFor(segId);
-		const chunk = (await this.base.get<ChunkRecord>(chunkKey)) ?? { segments: {} };
+		const chunk = (await this.base.get<ChunkRecord>(chunkKey)) ?? {
+			segments: {},
+		};
 		chunk.segments[segId] = values as unknown;
 		await this.base.set<ChunkRecord>(chunkKey, chunk);
 	}
@@ -46,5 +50,3 @@ export class ChunkingStore implements IStore {
 		return `chunk_${chunkIndex}`;
 	}
 }
-
-

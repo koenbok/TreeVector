@@ -1,5 +1,9 @@
 import type { IStore } from "./Store";
-import { flushSegmentsToChunks, loadSegmentFromChunks, type ChunkCache } from "./ChunkIO";
+import {
+	flushSegmentsToChunks,
+	loadSegmentFromChunks,
+	type ChunkCache,
+} from "./Chunks";
 
 type Segment<T> = {
 	id: string;
@@ -17,8 +21,8 @@ export class FenwickList<T> {
 
 	constructor(
 		private readonly store: IStore,
-		private readonly maxValuesPerSegment: number,
-		private readonly segmentsPerChunk?: number,
+		private readonly segmentN: number,
+		private readonly chunkN: number,
 	) {}
 
 	async insertAt(index: number, value: T): Promise<void> {
@@ -42,7 +46,7 @@ export class FenwickList<T> {
 			this.totalCount += 1;
 			this.addFenwick(segIndex, 1);
 			this.dirty.add(seg);
-			if (seg.count > this.maxValuesPerSegment) this.splitSegment(segIndex);
+			if (seg.count > this.segmentN) this.splitSegment(segIndex);
 			return;
 		}
 
@@ -56,7 +60,7 @@ export class FenwickList<T> {
 		this.addFenwick(segIndex, 1);
 		this.dirty.add(seg);
 
-		if (seg.count > this.maxValuesPerSegment) {
+		if (seg.count > this.segmentN) {
 			this.splitSegment(segIndex);
 		}
 	}
@@ -97,7 +101,7 @@ export class FenwickList<T> {
 		const keys = await flushSegmentsToChunks<T>(
 			this.store,
 			Array.from(this.dirty.values()),
-			this.segmentsPerChunk,
+			this.chunkN,
 		);
 		this.dirty.clear();
 		return keys;
@@ -109,7 +113,7 @@ export class FenwickList<T> {
 		const arr = await loadSegmentFromChunks<T>(
 			this.store,
 			seg.id,
-			this.segmentsPerChunk,
+			this.chunkN,
 			"chunk_",
 			this.chunkCache,
 		);
@@ -160,17 +164,6 @@ export class FenwickList<T> {
 		const segIndex = Math.min(idx, this.segments.length - 1);
 		const local = index - sum;
 		return { segIndex, localIndex: local };
-	}
-
-	private prefixSum(endExclusive: number): number {
-		// Sum of counts for segments [0, endExclusive)
-		let sum = 0;
-		let i = endExclusive;
-		while (i > 0) {
-			sum += this.fenwick[i - 1] ?? 0;
-			i -= i & -i;
-		}
-		return sum;
 	}
 
 	private addFenwick(index: number, delta: number): void {

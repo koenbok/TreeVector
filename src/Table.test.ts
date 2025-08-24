@@ -7,12 +7,12 @@ type Row = { id: number; name: string };
 
 describe("Table", () => {
 	it("inserts rows and get returns non-order columns by index", async () => {
-		const store = new MemoryStore<number>();
+		const store = new MemoryStore();
 		const table = new Table<number>(
 			store,
-			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4) },
+			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4, 10) },
 			{
-				name: new FenwickColumn<number>(store, 4),
+				name: new FenwickColumn<number>(store, 4, 10),
 			} as unknown as Record<string, FenwickColumn<number>>,
 		);
 
@@ -35,12 +35,12 @@ describe("Table", () => {
 	});
 
 	it("range(limit, offset) returns rows in index slice", async () => {
-		const store = new MemoryStore<number>();
+		const store = new MemoryStore();
 		const table = new Table<number>(
 			store,
-			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4) },
+			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4, 10) },
 			{
-				name: new FenwickColumn<number>(store, 4),
+				name: new FenwickColumn<number>(store, 4, 10),
 			} as unknown as Record<string, FenwickColumn<number>>,
 		);
 
@@ -57,11 +57,11 @@ describe("Table", () => {
 	});
 
 	it("throws if a row is missing the order key", async () => {
-		const store = new MemoryStore<number>();
+		const store = new MemoryStore();
 		const table = new Table<number>(
 			store,
-			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4) },
-			{ name: new FenwickColumn<number>(store, 4) } as unknown as Record<
+			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4, 10) },
+			{ name: new FenwickColumn<number>(store, 4, 10) } as unknown as Record<
 				string,
 				FenwickColumn<number>
 			>,

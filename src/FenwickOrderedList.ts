@@ -1,5 +1,9 @@
 import type { IStore } from "./Store";
-import { flushSegmentsToChunks, loadSegmentFromChunks, type ChunkCache } from "./ChunkIO";
+import {
+	flushSegmentsToChunks,
+	loadSegmentFromChunks,
+	type ChunkCache,
+} from "./Chunks";
 
 type Segment<T> = {
 	id: string;
@@ -25,9 +29,9 @@ export class FenwickOrderedList<T> {
 
 	constructor(
 		private readonly store: IStore,
-		private readonly maxValuesPerSegment: number,
+		private readonly segmentN: number,
+		private readonly chunkN: number,
 		private readonly cmp: (a: T, b: T) => number = defaultCmp,
-		private readonly segmentsPerChunk?: number,
 	) {}
 
 	async insert(value: T): Promise<number> {
@@ -65,7 +69,7 @@ export class FenwickOrderedList<T> {
 		this.addFenwick(segIndex, 1);
 		this.dirty.add(seg);
 
-		if (seg.count > this.maxValuesPerSegment) this.splitSegment(segIndex);
+		if (seg.count > this.segmentN) this.splitSegment(segIndex);
 		return insertPos;
 	}
 
@@ -137,7 +141,7 @@ export class FenwickOrderedList<T> {
 		const keys = await flushSegmentsToChunks<T>(
 			this.store,
 			Array.from(this.dirty.values()),
-			this.segmentsPerChunk,
+			this.chunkN,
 			"ochunk_",
 		);
 		this.dirty.clear();
@@ -150,7 +154,7 @@ export class FenwickOrderedList<T> {
 		const arr = await loadSegmentFromChunks<T>(
 			this.store,
 			seg.id,
-			this.segmentsPerChunk,
+			this.chunkN,
 			"ochunk_",
 			this.chunkCache,
 		);

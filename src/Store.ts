@@ -1,17 +1,20 @@
-export interface IStore<T> {
-	get(key: string): Promise<T[] | undefined>;
-	set(key: string, values: T[]): Promise<void>;
+export interface IStore {
+	get<T = unknown>(key: string): Promise<T | undefined>;
+	set<T = unknown>(key: string, values: T): Promise<void>;
 }
 
-export class MemoryStore<T> implements IStore<T> {
-	private map = new Map<string, T[]>();
+export class MemoryStore implements IStore {
+	private map = new Map<string, unknown>();
 
-	async get(key: string): Promise<T[] | undefined> {
-		return this.map.get(key);
+	async get<T = unknown>(key: string): Promise<T | undefined> {
+		const value = this.map.get(key);
+		if (value === undefined) {
+			return undefined;
+		}
+		return structuredClone(value) as T;
 	}
 
-	async set(key: string, values: T[]): Promise<void> {
-		// store a copy to avoid aliasing test arrays
-		this.map.set(key, values.slice());
+	async set<T = unknown>(key: string, value: T): Promise<void> {
+		this.map.set(key, structuredClone(value));
 	}
 }
