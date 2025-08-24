@@ -1,7 +1,8 @@
-import { BPlusTree } from "./BPlusTree";
 import type { IStore } from "./Store";
+import { FenwickOrderedList } from "./FenwickOrderedList";
+import { FenwickList } from "./FenwickList";
 
-export interface SortedColumn<T> {
+export interface OrderedColumnInterface<T> {
 	insert(value: T): Promise<number>;
 	range(min: number, max: number): Promise<T[]>;
 	scan(min: T, max: T): Promise<T[]>;
@@ -10,106 +11,53 @@ export interface SortedColumn<T> {
 	flush(): Promise<string[]>;
 }
 
-export interface IndexedColumn<T> {
+export interface IndexedColumnInterface<T> {
 	insert(index: number, value: T): Promise<void>;
 	range(min: number, max: number): Promise<T[]>;
 	get(index: number): Promise<T | undefined>;
 	flush(): Promise<string[]>;
 }
 
-export class BasicSortedColumn<T> implements SortedColumn<T> {
-	values: T[] = [];
-
-	async insert(value: T): Promise<number> {
-		const index = binarySearch(this.values, value);
-		this.values.splice(index, 0, value);
-		return index;
+export class FenwickColumn<T> implements IndexedColumnInterface<T> {
+	private list: FenwickList<T>;
+	constructor(store: IStore<T>, maxValuesPerSegment: number) {
+		this.list = new FenwickList<T>(store, maxValuesPerSegment);
 	}
-
-	async range(min: number, max: number): Promise<T[]> {
-		return this.values.slice(min, max);
-	}
-
-	async scan(min: T, max: T): Promise<T[]> {
-		const a = binarySearch(this.values, min);
-		const b = binarySearch(this.values, max);
-		return this.values.slice(a, b);
-	}
-
-	async get(index: number): Promise<T | undefined> {
-		return this.values[index];
-	}
-
-	async getIndex(value: T): Promise<number> {
-		return binarySearch(this.values, value);
-	}
-
-	async flush(): Promise<string[]> {
-		return [];
-	}
-}
-
-export class BPlusTreeSortedColumn<T> implements SortedColumn<T> {
-	tree: BPlusTree<T>;
-
-	constructor(store: IStore<T>, maxChildren: number, maxKeys: number) {
-		this.tree = new BPlusTree<T>(store, maxChildren, maxKeys);
-	}
-
-	async insert(value: T): Promise<number> {
-		return this.tree.insert(value);
-	}
-
-	async range(min: number, max: number): Promise<T[]> {
-		return this.tree.range(min, max);
-	}
-
-	async scan(min: T, max: T): Promise<T[]> {
-		return this.tree.scan(min, max);
-	}
-
-	async get(index: number): Promise<T | undefined> {
-		return this.tree.get(index);
-	}
-
-	async getIndex(value: T): Promise<number> {
-		return this.tree.getIndex(value);
-	}
-
-	async flush(): Promise<string[]> {
-		return this.tree.flush();
-	}
-}
-
-export class BasicIndexedColumn<T> implements IndexedColumn<T> {
-	values: T[] = [];
-
 	async insert(index: number, value: T): Promise<void> {
-		this.values.splice(index, 0, value);
+		await this.list.insertAt(index, value);
 	}
-
 	async range(min: number, max: number): Promise<T[]> {
-		return this.values.slice(min, max);
+		return this.list.range(min, max);
 	}
-
 	async get(index: number): Promise<T | undefined> {
-		return this.values[index];
+		return this.list.get(index);
 	}
-
 	async flush(): Promise<string[]> {
-		return [];
+		return this.list.flush();
 	}
 }
 
-function binarySearch<T>(values: T[], value: T): number {
-	// lower_bound: first index i where values[i] >= value
-	let low = 0;
-	let high = values.length;
-	while (low < high) {
-		const mid = (low + high) >>> 1;
-		const midVal = values[mid] as T;
-		if (midVal < value) low = mid + 1;
-		else high = mid;
+export class FenwickOrderedColumn<T> implements OrderedColumnInterface<T> {
+	private list: FenwickOrderedList<T>;
+	constructor(store: IStore<T>, maxValuesPerSegment: number) {
+		this.list = new FenwickOrderedList<T>(store, maxValuesPerSegment);
 	}
-	return low;
+	async insert(value: T): Promise<number> {
+		return this.list.insert(value);
+	}
+	async range(min: number, max: number): Promise<T[]> {
+		return this.list.range(min, max);
+	}
+	async scan(min: T, max: T): Promise<T[]> {
+		return this.list.scan(min, max);
+	}
+	async get(index: number): Promise<T | undefined> {
+		return this.list.get(index);
+	}
+	async getIndex(value: T): Promise<number> {
+		return this.list.getIndex(value);
+	}
+	async flush(): Promise<string[]> {
+		return this.list.flush();
+	}
 }

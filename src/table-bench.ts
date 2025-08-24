@@ -1,10 +1,15 @@
 import { Table } from "./Table";
-import { BasicIndexedColumn, BPlusTreeSortedColumn } from "./Column";
-import { MemoryStore } from "./Store";
+import {
+	FenwickOrderedColumn,
+	FenwickColumn,
+	type IndexedColumnInterface,
+	type OrderedColumnInterface,
+} from "./Column";
+import { MemoryStore, type IStore } from "./Store";
 
 type Row = { id: number; a: number; b: number; c: number };
 
-const TOTAL_ROWS = 1_000_000;
+const TOTAL_ROWS = 300_000;
 const BATCH_SIZE = 10_000;
 
 // Deterministic PRNGs (copied from bench.ts for consistency)
@@ -33,18 +38,7 @@ function formatNumber(n: number): string {
 	return Intl.NumberFormat("en-US").format(n);
 }
 
-async function main(): Promise<void> {
-	const store = new MemoryStore<number>();
-	const table = new Table<number>(
-		store,
-		{ key: "id", column: new BPlusTreeSortedColumn<number>(store, 64, 10_000) },
-		{
-			a: new BasicIndexedColumn<number>(),
-			b: new BasicIndexedColumn<number>(),
-			c: new BasicIndexedColumn<number>(),
-		},
-	);
-
+function buildRows(): Row[] {
 	// Build deterministic rows: ~1 in 20 ids duplicates a prior id
 	const seed = 0xc0ffee ^ 64 ^ 10_000;
 	const rng = mulberry32(seed);
@@ -59,35 +53,72 @@ async function main(): Promise<void> {
 		}
 		ids[i] = v;
 	}
-
-	const start = performance.now();
-	const batch: Row[] = [];
+	const rows: Row[] = new Array<Row>(TOTAL_ROWS);
 	for (let i = 0; i < TOTAL_ROWS; i++) {
-		batch.push({
+		rows[i] = {
 			id: ids[i] as number,
 			a: hash32(i) & 0xffff,
 			b: hash32(i + 1) & 0xffff,
 			c: hash32(i + 2) & 0xffff,
-		});
-		if (batch.length === BATCH_SIZE) {
-			console.log(`inserting batch ${i / BATCH_SIZE}`);
-			await table.insert(batch);
-			batch.length = 0;
-		}
+		};
 	}
-	if (batch.length > 0) {
+	return rows;
+}
+
+async function runScenario(
+	label: string,
+	orderFactory: (store: IStore<number>) => OrderedColumnInterface<number>,
+	indexedFactory: () => Record<string, IndexedColumnInterface<number>>,
+	rows: Row[],
+): Promise<{ ms: number; rps: number }> {
+	const store = new MemoryStore<number>();
+	const table = new Table<number>(
+		store,
+		{ key: "id", column: orderFactory(store) },
+		indexedFactory(),
+	);
+
+	const start = performance.now();
+	for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+		const batch = rows.slice(i, i + BATCH_SIZE);
+		const batchIdx = Math.floor(i / BATCH_SIZE);
+		const t0 = performance.now();
 		await table.insert(batch);
+		const t1 = performance.now();
+		const msBatch = t1 - t0;
+		const rpsBatch = batch.length / (msBatch / 1000);
+		console.log(
+			`${label}: batch ${batchIdx} — ${msBatch.toFixed(2)} ms, rows/s: ${formatNumber(
+				Math.floor(rpsBatch),
+			)}`,
+		);
 	}
 	const end = performance.now();
-
 	const ms = end - start;
 	const secs = ms / 1000;
-	const rps = TOTAL_ROWS / secs;
+	const rps = rows.length / secs;
+	return { ms, rps };
+}
 
-	console.log("\n=== Table Bench ===");
+async function main(): Promise<void> {
+	const rows = buildRows();
+
+	const fenwick = await runScenario(
+		"fenwick",
+		(store) => new FenwickOrderedColumn<number>(store, 8192),
+		() => ({
+			a: new FenwickColumn<number>(new MemoryStore<number>(), 8192),
+			b: new FenwickColumn<number>(new MemoryStore<number>(), 8192),
+			c: new FenwickColumn<number>(new MemoryStore<number>(), 8192),
+		}),
+		rows,
+	);
+
+	console.log("\n=== Table Bench (FenwickIndexedColumn) ===");
 	console.log(`rows: ${formatNumber(TOTAL_ROWS)}`);
-	console.log(`insert total: ${ms.toFixed(2)} ms (${secs.toFixed(2)} s)`);
-	console.log(`rows/s: ${formatNumber(Math.floor(rps))}`);
+	console.log(
+		`Fenwick: ${fenwick.ms.toFixed(2)} ms (${(fenwick.ms / 1000).toFixed(2)} s), rows/s: ${formatNumber(Math.floor(fenwick.rps))}`,
+	);
 }
 
 // eslint-disable-next-line unicorn/prefer-top-level-await

@@ -1,21 +1,19 @@
 import { describe, it, expect } from "bun:test";
 import {
-	BasicIndexedColumn,
-	BasicSortedColumn,
-	BPlusTreeSortedColumn,
-	type IndexedColumn,
-	type SortedColumn,
+	type IndexedColumnInterface,
+	type OrderedColumnInterface,
+	FenwickOrderedColumn,
+	FenwickColumn,
 } from "./Column";
 import { MemoryStore } from "./Store";
 
-const SortedColumns: Record<string, () => SortedColumn<number>> = {
-	BasicSortedColumn: () => new BasicSortedColumn<number>(),
-	BPlusTreeSortedColumn: () =>
-		new BPlusTreeSortedColumn<number>(new MemoryStore<number>(), 10, 64),
+const SortedColumns: Record<string, () => OrderedColumnInterface<number>> = {
+	FenwickOrderedColumn: () =>
+		new FenwickOrderedColumn<number>(new MemoryStore<number>(), 10),
 };
 
-const IndexedColumns: Record<string, () => IndexedColumn<number>> = {
-	BasicIndexedColumn: () => new BasicIndexedColumn<number>(),
+const IndexedColumns: Record<string, () => IndexedColumnInterface<number>> = {
+	FenwickColumn: () => new FenwickColumn<number>(new MemoryStore<number>(), 10),
 };
 
 for (const [name, ctor] of Object.entries(SortedColumns)) {
@@ -38,7 +36,7 @@ for (const [name, ctor] of Object.entries(SortedColumns)) {
 		});
 
 		it("scan(min,max) is [min, max) with binary search bounds", async () => {
-			const col = new BasicSortedColumn<number>();
+			const col = ctor();
 			for (const v of [1, 2, 2, 3, 4, 5]) await col.insert(v);
 			// [min,max) semantics: max exclusive
 			expect(await col.scan(2, 5)).toEqual([2, 2, 3, 4]);

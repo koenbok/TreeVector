@@ -1,4 +1,4 @@
-import type { IndexedColumn, SortedColumn } from "./Column";
+import type { IndexedColumnInterface, OrderedColumnInterface } from "./Column";
 import type { IStore } from "./Store";
 
 type Row = Record<string, unknown>;
@@ -6,8 +6,8 @@ type Row = Record<string, unknown>;
 export class Table<T> {
 	constructor(
 		private store: IStore<T>,
-		private order: { key: string; column: SortedColumn<T> },
-		private columns: Record<string, IndexedColumn<T>>,
+		private order: { key: string; column: OrderedColumnInterface<T> },
+		private columns: Record<string, IndexedColumnInterface<T>>,
 	) {}
 
 	async insert(rows: Row[]): Promise<void> {
