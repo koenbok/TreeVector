@@ -13,19 +13,36 @@ export function chunkKey(prefix: string, chunkIndex: number): string {
 	return `${prefix}${chunkIndex}`;
 }
 
+export type ChunkCache<T> = {
+	idx?: number;
+	segs?: Record<number, T[]>;
+};
+
 export async function loadSegmentFromChunks<T>(
 	store: IStore,
 	segId: string,
 	segmentsPerChunk?: number,
 	chunkPrefix = "chunk_",
+	cache?: ChunkCache<T>,
 ): Promise<T[]> {
 	if (segmentsPerChunk && segmentsPerChunk > 0) {
 		const segNum = segmentNumericId(segId);
 		const cidx = Math.floor(segNum / segmentsPerChunk);
-		const chunk = (await store.get<{ segments?: Record<number, T[]> }>(
-			chunkKey(chunkPrefix, cidx),
-		)) ?? {};
-		const arr = chunk.segments?.[segNum];
+		let segments: Record<number, T[]> | undefined;
+		if (cache && cache.idx === cidx && cache.segs) {
+			segments = cache.segs;
+		} else {
+			const chunk =
+				(await store.get<{ segments?: Record<number, T[]> }>(
+					chunkKey(chunkPrefix, cidx),
+				)) ?? {};
+			segments = chunk.segments;
+			if (cache) {
+				cache.idx = cidx;
+				cache.segs = segments ?? {};
+			}
+		}
+		const arr = segments?.[segNum];
 		if (arr) return arr.slice();
 	}
 	const flat = (await store.get<T[]>(segId)) ?? [];
@@ -39,7 +56,8 @@ export async function flushSegmentsToChunks<T>(
 	chunkPrefix = "chunk_",
 ): Promise<string[]> {
 	if (!segmentsPerChunk || segmentsPerChunk <= 0) {
-		for (const seg of dirty) await store.set<T[]>(seg.id, (seg.values ?? []) as T[]);
+		for (const seg of dirty)
+			await store.set<T[]>(seg.id, (seg.values ?? []) as T[]);
 		return dirty.map((s) => s.id);
 	}
 	const chunkMap = new Map<number, Record<number, T[]>>();
@@ -61,5 +79,3 @@ export async function flushSegmentsToChunks<T>(
 	}
 	return writtenKeys;
 }
-
-

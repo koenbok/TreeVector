@@ -1,5 +1,5 @@
 import type { IStore } from "./Store";
-import { flushSegmentsToChunks, loadSegmentFromChunks } from "./ChunkIO";
+import { flushSegmentsToChunks, loadSegmentFromChunks, type ChunkCache } from "./ChunkIO";
 
 type Segment<T> = {
 	id: string;
@@ -13,6 +13,7 @@ export class FenwickList<T> {
 	private totalCount = 0;
 	private nextId = 0;
 	private dirty = new Set<Segment<T>>();
+	private chunkCache: ChunkCache<T> | undefined;
 
 	constructor(
 		private readonly store: IStore,
@@ -109,6 +110,8 @@ export class FenwickList<T> {
 			this.store,
 			seg.id,
 			this.segmentsPerChunk,
+			"chunk_",
+			this.chunkCache,
 		);
 		seg.values = arr.slice();
 		seg.count = arr.length;
