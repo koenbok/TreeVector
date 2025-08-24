@@ -1,4 +1,5 @@
 import type { IStore } from "./Store";
+import { flushSegmentsToChunks, loadSegmentFromChunks } from "./ChunkIO";
 
 type Segment<T> = {
 	id: string;
@@ -25,6 +26,7 @@ export class FenwickOrderedList<T> {
 		private readonly store: IStore,
 		private readonly maxValuesPerSegment: number,
 		private readonly cmp: (a: T, b: T) => number = defaultCmp,
+		private readonly segmentsPerChunk?: number,
 	) {}
 
 	async insert(value: T): Promise<number> {
@@ -131,11 +133,12 @@ export class FenwickOrderedList<T> {
 	}
 
 	async flush(): Promise<string[]> {
-		for (const seg of this.dirty) {
-			const arr = (seg.values ?? []) as T[];
-			await this.store.set<T[]>(seg.id, arr);
-		}
-		const keys = Array.from(this.dirty.values()).map((s) => s.id);
+		const keys = await flushSegmentsToChunks<T>(
+			this.store,
+			Array.from(this.dirty.values()),
+			this.segmentsPerChunk,
+			"ochunk_",
+		);
 		this.dirty.clear();
 		return keys;
 	}
@@ -143,14 +146,20 @@ export class FenwickOrderedList<T> {
 	// internals
 	private async ensureLoaded(seg: Segment<T>): Promise<void> {
 		if (seg.values !== undefined) return;
-		const flat = (await this.store.get<T[]>(seg.id)) ?? [];
-		seg.values = flat.slice();
-		seg.count = flat.length;
-		if (flat.length > 0) {
-			seg.min = flat[0] as T;
-			seg.max = flat[flat.length - 1] as T;
+		const arr = await loadSegmentFromChunks<T>(
+			this.store,
+			seg.id,
+			this.segmentsPerChunk,
+			"ochunk_",
+		);
+		seg.values = arr.slice();
+		seg.count = arr.length;
+		if (arr.length > 0) {
+			seg.min = arr[0] as T;
+			seg.max = arr[arr.length - 1] as T;
 		}
 	}
+
 
 	private splitSegment(index: number): void {
 		const seg = this.segments[index] as Segment<T>;

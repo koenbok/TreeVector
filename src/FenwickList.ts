@@ -1,4 +1,5 @@
 import type { IStore } from "./Store";
+import { flushSegmentsToChunks, loadSegmentFromChunks } from "./ChunkIO";
 
 type Segment<T> = {
 	id: string;
@@ -14,8 +15,9 @@ export class FenwickList<T> {
 	private dirty = new Set<Segment<T>>();
 
 	constructor(
-		private readonly store: IStore<T>,
+		private readonly store: IStore,
 		private readonly maxValuesPerSegment: number,
+		private readonly segmentsPerChunk?: number,
 	) {}
 
 	async insertAt(index: number, value: T): Promise<void> {
@@ -91,11 +93,11 @@ export class FenwickList<T> {
 	}
 
 	async flush(): Promise<string[]> {
-		for (const seg of this.dirty) {
-			const arr = seg.values ?? [];
-			await this.store.set(seg.id, arr);
-		}
-		const keys = Array.from(this.dirty.values()).map((s) => s.id);
+		const keys = await flushSegmentsToChunks<T>(
+			this.store,
+			Array.from(this.dirty.values()),
+			this.segmentsPerChunk,
+		);
 		this.dirty.clear();
 		return keys;
 	}
@@ -103,9 +105,13 @@ export class FenwickList<T> {
 	// ---- internals ----
 	private async ensureLoaded(seg: Segment<T>): Promise<void> {
 		if (seg.values !== undefined) return;
-		const flat = (await this.store.get(seg.id)) ?? [];
-		seg.values = [...flat];
-		seg.count = flat.length;
+		const arr = await loadSegmentFromChunks<T>(
+			this.store,
+			seg.id,
+			this.segmentsPerChunk,
+		);
+		seg.values = arr.slice();
+		seg.count = arr.length;
 	}
 
 	private splitSegment(index: number): void {
