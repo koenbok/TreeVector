@@ -99,8 +99,8 @@ async function main(): Promise<void> {
 	const list = new FenwickOrderedList<number>(
 		store,
 		MAX_PER_SEGMENT,
+		SEGMENTS_PER_CHUNK as number,
 		(a, b) => (a < b ? -1 : a > b ? 1 : 0),
-		SEGMENTS_PER_CHUNK,
 	);
 
 	// Insert and time

@@ -1,17 +1,7 @@
 import type { IStore } from "./Store";
-import {
-	flushSegmentsToChunks,
-	loadSegmentFromChunks,
-	type ChunkCache,
-} from "./Chunks";
+import { FenwickBase, type BaseSegment } from "./FenwickBase";
 
-type Segment<T> = {
-	id: string;
-	count: number;
-	min: T;
-	max: T;
-	values?: T[];
-};
+type Segment<T> = BaseSegment<T> & { min: T; max: T };
 
 function defaultCmp<T>(a: T, b: T): number {
 	const aVal = a as unknown as number | string | bigint;
@@ -19,20 +9,15 @@ function defaultCmp<T>(a: T, b: T): number {
 	return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
 }
 
-export class FenwickOrderedList<T> {
-	private segments: Segment<T>[] = [];
-	private fenwick: number[] = [];
-	private totalCount = 0;
-	private nextId = 0;
-	private dirty = new Set<Segment<T>>();
-	private chunkCache: ChunkCache<T> | undefined;
-
+export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
 	constructor(
-		private readonly store: IStore,
-		private readonly segmentN: number,
-		private readonly chunkN: number,
+		store: IStore,
+		segmentN: number,
+		chunkN: number,
 		private readonly cmp: (a: T, b: T) => number = defaultCmp,
-	) {}
+	) {
+		super(store, segmentN, chunkN, "ochunk_", "oseg_");
+	}
 
 	async insert(value: T): Promise<number> {
 		if (this.segments.length === 0) {
@@ -73,35 +58,12 @@ export class FenwickOrderedList<T> {
 		return insertPos;
 	}
 
-	async get(index: number): Promise<T | undefined> {
-		if (index < 0 || index >= this.totalCount) return undefined;
-		const { segIndex, localIndex } = this.findByIndex(index);
-		const seg = this.segments[segIndex] as Segment<T>;
-		await this.ensureLoaded(seg);
-		return (seg.values as T[])[localIndex] as T;
+	override async get(index: number): Promise<T | undefined> {
+		return super.get(index);
 	}
 
-	async range(minIndex: number, maxIndex: number): Promise<T[]> {
-		const out: T[] = [];
-		if (this.totalCount === 0) return out;
-		const a = Math.max(0, minIndex);
-		let b = maxIndex;
-		if (b <= a) return out;
-		if (a >= this.totalCount) return out;
-		if (b > this.totalCount) b = this.totalCount;
-		let { segIndex, localIndex } = this.findByIndex(a);
-		let remaining = b - a;
-		while (remaining > 0 && segIndex < this.segments.length) {
-			const seg = this.segments[segIndex] as Segment<T>;
-			await this.ensureLoaded(seg);
-			const arr = seg.values as T[];
-			const take = Math.min(remaining, Math.max(0, arr.length - localIndex));
-			if (take > 0) out.push(...arr.slice(localIndex, localIndex + take));
-			remaining -= take;
-			segIndex += 1;
-			localIndex = 0;
-		}
-		return out;
+	override async range(minIndex: number, maxIndex: number): Promise<T[]> {
+		return super.range(minIndex, maxIndex);
 	}
 
 	async scan(min: T, max: T): Promise<T[]> {
@@ -137,47 +99,28 @@ export class FenwickOrderedList<T> {
 		return before + local;
 	}
 
-	async flush(): Promise<string[]> {
-		const keys = await flushSegmentsToChunks<T>(
-			this.store,
-			Array.from(this.dirty.values()),
-			this.chunkN,
-			"ochunk_",
-		);
-		this.dirty.clear();
-		return keys;
-	}
-
-	// internals
-	private async ensureLoaded(seg: Segment<T>): Promise<void> {
-		if (seg.values !== undefined) return;
-		const arr = await loadSegmentFromChunks<T>(
-			this.store,
-			seg.id,
-			this.chunkN,
-			"ochunk_",
-			this.chunkCache,
-		);
-		seg.values = arr.slice();
-		seg.count = arr.length;
+	protected override async ensureLoaded(segment: Segment<T>): Promise<void> {
+		if (segment.values !== undefined) return;
+		await super.ensureLoaded(segment);
+		const arr = segment.values ?? [];
 		if (arr.length > 0) {
-			seg.min = arr[0] as T;
-			seg.max = arr[arr.length - 1] as T;
+			segment.min = arr[0] as T;
+			segment.max = arr[arr.length - 1] as T;
 		}
 	}
 
-	private splitSegment(index: number): void {
-		const seg = this.segments[index] as Segment<T>;
-		const arr = seg.values as T[];
+	protected override splitSegment(index: number): void {
+		const segment = this.segments[index] as Segment<T>;
+		const arr = segment.values as T[];
 		const mid = arr.length >>> 1;
 		const left = arr.slice(0, mid);
 		const right = arr.slice(mid);
 		if (left.length === 0 || right.length === 0) return;
 
-		seg.values = left;
-		seg.count = left.length;
-		seg.min = left[0] as T;
-		seg.max = left[left.length - 1] as T;
+		segment.values = left;
+		segment.count = left.length;
+		segment.min = left[0] as T;
+		segment.max = left[left.length - 1] as T;
 		const newSeg: Segment<T> = {
 			id: this.newId(),
 			count: right.length,
@@ -187,80 +130,8 @@ export class FenwickOrderedList<T> {
 		};
 		this.segments.splice(index + 1, 0, newSeg);
 		this.rebuildFenwick();
-		this.dirty.add(seg);
+		this.dirty.add(segment);
 		this.dirty.add(newSeg);
-	}
-
-	private findByIndex(index: number): { segIndex: number; localIndex: number } {
-		let idx = 0;
-		let bit = 1;
-		while (bit << 1 <= this.fenwick.length) bit <<= 1;
-		let sum = 0;
-		for (let step = bit; step > 0; step >>= 1) {
-			const next = idx + step;
-			if (
-				next <= this.fenwick.length &&
-				sum + (this.fenwick[next - 1] ?? 0) <= index
-			) {
-				sum += this.fenwick[next - 1] as number;
-				idx = next;
-			}
-		}
-		const segIndex = Math.min(idx, this.segments.length - 1);
-		const local = index - sum;
-		return { segIndex, localIndex: local };
-	}
-
-	private prefixSum(endExclusive: number): number {
-		let sum = 0;
-		let i = endExclusive;
-		while (i > 0) {
-			sum += this.fenwick[i - 1] as number;
-			i -= i & -i;
-		}
-		return sum;
-	}
-
-	private addFenwick(index: number, delta: number): void {
-		let i = index + 1;
-		while (i <= this.fenwick.length) {
-			this.fenwick[i - 1] = (this.fenwick[i - 1] ?? 0) + delta;
-			i += i & -i;
-		}
-	}
-
-	private rebuildFenwick(): void {
-		const n = this.segments.length;
-		this.fenwick = new Array<number>(n).fill(0);
-		for (let i = 0; i < n; i++) this.fenwick[i] = this.segments[i]?.count ?? 0;
-		for (let i = 0; i < n; i++) {
-			const j = i + ((i + 1) & -(i + 1));
-			if (j <= n - 1)
-				this.fenwick[j] = (this.fenwick[j] ?? 0) + (this.fenwick[i] ?? 0);
-		}
-	}
-
-	// binary search helpers
-	private lowerBoundInArray(arr: T[], value: T): number {
-		let lo = 0;
-		let hi = arr.length;
-		while (lo < hi) {
-			const mid = (lo + hi) >>> 1;
-			if (this.cmp(arr[mid] as T, value) < 0) lo = mid + 1;
-			else hi = mid;
-		}
-		return lo;
-	}
-
-	private upperBoundInArray(arr: T[], value: T): number {
-		let lo = 0;
-		let hi = arr.length;
-		while (lo < hi) {
-			const mid = (lo + hi) >>> 1;
-			if (this.cmp(arr[mid] as T, value) <= 0) lo = mid + 1;
-			else hi = mid;
-		}
-		return lo;
 	}
 
 	private findFirstSegmentByMaxLowerBound(value: T): number {
@@ -275,9 +146,23 @@ export class FenwickOrderedList<T> {
 		return Math.min(lo, this.segments.length - 1);
 	}
 
-	private newId(): string {
-		const id = `oseg_${this.nextId}`;
-		this.nextId += 1;
-		return id;
+	private boundInArray(arr: T[], value: T, upper: boolean): number {
+		let lo = 0;
+		let hi = arr.length;
+		while (lo < hi) {
+			const mid = (lo + hi) >>> 1;
+			const cmpRes = this.cmp(arr[mid] as T, value);
+			if (upper ? cmpRes <= 0 : cmpRes < 0) lo = mid + 1;
+			else hi = mid;
+		}
+		return lo;
+	}
+
+	private lowerBoundInArray(arr: T[], value: T): number {
+		return this.boundInArray(arr, value, false);
+	}
+
+	private upperBoundInArray(arr: T[], value: T): number {
+		return this.boundInArray(arr, value, true);
 	}
 }
