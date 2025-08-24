@@ -43,7 +43,7 @@ export class FenwickList<T> {
 			return;
 		}
 
-		const { segIndex, localIndex, beforeSum } = this.findByIndex(clamped);
+		const { segIndex, localIndex } = this.findByIndex(clamped);
 		const seg = this.segments[segIndex] as Segment<T>;
 		await this.ensureLoaded(seg);
 		const arr = seg.values as T[];
@@ -82,7 +82,7 @@ export class FenwickList<T> {
 			await this.ensureLoaded(seg);
 			const arr = seg.values as T[];
 			const take = Math.min(remaining, Math.max(0, arr.length - localIndex));
-			for (let i = 0; i < take; i++) out.push(arr[localIndex + i] as T);
+			if (take > 0) out.push(...arr.slice(localIndex, localIndex + take));
 			remaining -= take;
 			segIndex += 1;
 			localIndex = 0;
@@ -132,9 +132,8 @@ export class FenwickList<T> {
 	private findByIndex(index: number): {
 		segIndex: number;
 		localIndex: number;
-		beforeSum: number;
 	} {
-		// Find smallest i such that prefix(i) > index
+		// Find largest prefix <= index, return containing segment and local index
 		let idx = 0;
 		let bit = 1;
 		while (bit << 1 <= this.fenwick.length) bit <<= 1;
@@ -143,7 +142,7 @@ export class FenwickList<T> {
 			const next = idx + step;
 			if (
 				next <= this.fenwick.length &&
-				sum + (this.fenwick[next - 1] ?? 0) < index
+				sum + (this.fenwick[next - 1] ?? 0) <= index
 			) {
 				sum += this.fenwick[next - 1] as number;
 				idx = next;
@@ -151,7 +150,7 @@ export class FenwickList<T> {
 		}
 		const segIndex = Math.min(idx, this.segments.length - 1);
 		const local = index - sum;
-		return { segIndex, localIndex: local, beforeSum: sum };
+		return { segIndex, localIndex: local };
 	}
 
 	private prefixSum(endExclusive: number): number {

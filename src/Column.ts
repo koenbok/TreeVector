@@ -49,7 +49,10 @@ export class FenwickOrderedColumn<T> implements OrderedColumnInterface<T> {
 		return this.list.range(min, max);
 	}
 	async scan(min: T, max: T): Promise<T[]> {
-		return this.list.scan(min, max);
+		// Implement [min, max) semantics via index bounds to avoid value-inclusive ambiguity
+		const start = await this.list.getIndex(min);
+		const end = await this.list.getIndex(max);
+		return this.list.range(start, end);
 	}
 	async get(index: number): Promise<T | undefined> {
 		return this.list.get(index);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { Table } from "./Table";
-import { BasicIndexedColumn, BPlusTreeSortedColumn } from "./Column";
 import { MemoryStore } from "./Store";
+import { FenwickColumn, FenwickOrderedColumn } from "./Column";
 
 type Row = { id: number; name: string };
 
@@ -10,10 +10,10 @@ describe("Table", () => {
 		const store = new MemoryStore<number>();
 		const table = new Table<number>(
 			store,
-			{ key: "id", column: new BPlusTreeSortedColumn<number>(store, 4, 8) },
+			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4) },
 			{
-				name: new BasicIndexedColumn<number>(),
-			} as unknown as Record<string, BasicIndexedColumn<number>>,
+				name: new FenwickColumn<number>(store, 4),
+			} as unknown as Record<string, FenwickColumn<number>>,
 		);
 
 		// Insert three rows
@@ -38,10 +38,10 @@ describe("Table", () => {
 		const store = new MemoryStore<number>();
 		const table = new Table<number>(
 			store,
-			{ key: "id", column: new BPlusTreeSortedColumn<number>(store, 4, 8) },
+			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4) },
 			{
-				name: new BasicIndexedColumn<number>(),
-			} as unknown as Record<string, BasicIndexedColumn<number>>,
+				name: new FenwickColumn<number>(store, 4),
+			} as unknown as Record<string, FenwickColumn<number>>,
 		);
 
 		await table.insert([
@@ -60,10 +60,10 @@ describe("Table", () => {
 		const store = new MemoryStore<number>();
 		const table = new Table<number>(
 			store,
-			{ key: "id", column: new BPlusTreeSortedColumn<number>(store, 4, 8) },
-			{ name: new BasicIndexedColumn<number>() } as unknown as Record<
+			{ key: "id", column: new FenwickOrderedColumn<number>(store, 4) },
+			{ name: new FenwickColumn<number>(store, 4) } as unknown as Record<
 				string,
-				BasicIndexedColumn<number>
+				FenwickColumn<number>
 			>,
 		);
 
