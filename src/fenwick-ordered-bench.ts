@@ -1,9 +1,11 @@
 import { FenwickOrderedList } from "./FenwickOrderedList";
 import { MemoryStore } from "./Store";
+import { ChunkingStore } from "./ChunkingStore";
 
 // Defaults (override with CLI: bun run src/fenwick-ordered-bench.ts 1000000 8192)
 const TOTAL = Number(process.argv[2] ?? 1_000_000);
 const MAX_PER_SEGMENT = Number(process.argv[3] ?? 8192);
+const SEGMENTS_PER_CHUNK = process.argv[4] ? Number(process.argv[4]) : undefined;
 const DUP_RATE = 0.05; // 5% duplicates → ~95% unique
 
 function mulberry32(seed: number): () => number {
@@ -33,7 +35,10 @@ function formatNumber(n: number): string {
 
 function percentile(sorted: number[], p: number): number {
 	if (sorted.length === 0) return 0;
-	const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor((p / 100) * (sorted.length - 1))));
+	const idx = Math.min(
+		sorted.length - 1,
+		Math.max(0, Math.floor((p / 100) * (sorted.length - 1))),
+	);
 	return sorted[idx] as number;
 }
 
@@ -53,7 +58,10 @@ function buildValues(count: number, dupRate: number): number[] {
 	return arr;
 }
 
-function makeHistogram(values: number[], numBins = 10): { ranges: [number, number][]; counts: number[] } {
+function makeHistogram(
+	values: number[],
+	numBins = 10,
+): { ranges: [number, number][]; counts: number[] } {
 	if (values.length === 0) return { ranges: [], counts: [] };
 	let min = Number.POSITIVE_INFINITY;
 	let max = Number.NEGATIVE_INFINITY;
@@ -80,11 +88,16 @@ function makeHistogram(values: number[], numBins = 10): { ranges: [number, numbe
 
 async function main(): Promise<void> {
 	console.log("=== FenwickOrderedList Bench ===");
-	console.log(`values: ${formatNumber(TOTAL)}  (≈${Math.round((1 - DUP_RATE) * 100)}% unique)`);
+	console.log(
+		`values: ${formatNumber(TOTAL)}  (≈${Math.round((1 - DUP_RATE) * 100)}% unique)`,
+	);
 	console.log(`maxValuesPerSegment: ${formatNumber(MAX_PER_SEGMENT)}`);
 
 	const values = buildValues(TOTAL, DUP_RATE);
-	const store = new MemoryStore<number>();
+	const baseStore = new MemoryStore();
+	const store = SEGMENTS_PER_CHUNK
+		? new ChunkingStore(baseStore, SEGMENTS_PER_CHUNK)
+		: baseStore;
 	const list = new FenwickOrderedList<number>(store, MAX_PER_SEGMENT);
 
 	// Insert and time
@@ -95,13 +108,17 @@ async function main(): Promise<void> {
 		if ((i + 1) % 100_000 === 0) {
 			const dt = performance.now() - t0;
 			const ips = (i + 1) / (dt / 1000);
-			console.log(`inserted ${formatNumber(i + 1)} in ${dt.toFixed(0)} ms — inserts/s ${formatNumber(Math.floor(ips))}`);
+			console.log(
+				`inserted ${formatNumber(i + 1)} in ${dt.toFixed(0)} ms — inserts/s ${formatNumber(Math.floor(ips))}`,
+			);
 		}
 	}
 	const t1 = performance.now();
 	const insertMs = t1 - t0;
 	const insertsPerSec = values.length / (insertMs / 1000);
-	console.log(`Insert time: ${insertMs.toFixed(0)} ms — inserts/s ${formatNumber(Math.floor(insertsPerSec))}`);
+	console.log(
+		`Insert time: ${insertMs.toFixed(0)} ms — inserts/s ${formatNumber(Math.floor(insertsPerSec))}`,
+	);
 
 	// Verify order
 	const checkStart = performance.now();
@@ -131,13 +148,29 @@ async function main(): Promise<void> {
 	const p50 = percentile(segSizes, 50);
 	const p90 = percentile(segSizes, 90);
 	const p99 = percentile(segSizes, 99);
-	console.log(`Segments: ${formatNumber(segTotal)} — min ${segMin}, p50 ${p50}, p90 ${p90}, p99 ${p99}, max ${segMax}`);
-	const { ranges, counts } = makeHistogram(segSizes, Math.min(12, Math.max(4, Math.ceil(Math.log2(segTotal + 1)))))
+	console.log(
+		`Segments: ${formatNumber(segTotal)} — min ${segMin}, p50 ${p50}, p90 ${p90}, p99 ${p99}, max ${segMax}`,
+	);
+	const { ranges, counts } = makeHistogram(
+		segSizes,
+		Math.min(12, Math.max(4, Math.ceil(Math.log2(segTotal + 1)))),
+	);
 	console.log("Histogram (segment sizes):");
 	for (let i = 0; i < ranges.length; i++) {
 		const [lo, hi] = ranges[i] as [number, number];
-		const bar = "#".repeat(Math.max(1, Math.floor((counts[i] as number) / Math.max(1, segTotal / 60))));
-		console.log(`  [${lo.toString().padStart(5)}, ${hi.toString().padStart(5)}]:`.padEnd(20), `${formatNumber(counts[i] as number)}`.padStart(8), bar);
+		const bar = "#".repeat(
+			Math.max(
+				1,
+				Math.floor((counts[i] as number) / Math.max(1, segTotal / 60)),
+			),
+		);
+		console.log(
+			`  [${lo.toString().padStart(5)}, ${hi.toString().padStart(5)}]:`.padEnd(
+				20,
+			),
+			`${formatNumber(counts[i] as number)}`.padStart(8),
+			bar,
+		);
 	}
 
 	// Range timings (10k)
@@ -148,14 +181,21 @@ async function main(): Promise<void> {
 	for (let i = 0; i < RANGES; i++) {
 		const start = Math.floor(rng() * TOTAL);
 		const lenRand = rng();
-		const len = lenRand < 0.6 ? Math.floor(rng() * 10) + 1 : lenRand < 0.9 ? Math.floor(rng() * 100) + 1 : Math.floor(rng() * 1000) + 1;
+		const len =
+			lenRand < 0.6
+				? Math.floor(rng() * 10) + 1
+				: lenRand < 0.9
+					? Math.floor(rng() * 100) + 1
+					: Math.floor(rng() * 1000) + 1;
 		const end = Math.min(TOTAL, start + len);
 		// eslint-disable-next-line no-await-in-loop
 		const r = await list.range(start, end);
 		totalRangeLen += r.length;
 	}
 	const tRangeMs = performance.now() - tRangeStart;
-	console.log(`Range x${formatNumber(RANGES)}: ${tRangeMs.toFixed(0)} ms — ops/s ${formatNumber(Math.floor(RANGES / (tRangeMs / 1000)))} — avg len ${(totalRangeLen / RANGES).toFixed(1)}`);
+	console.log(
+		`Range x${formatNumber(RANGES)}: ${tRangeMs.toFixed(0)} ms — ops/s ${formatNumber(Math.floor(RANGES / (tRangeMs / 1000)))} — avg len ${(totalRangeLen / RANGES).toFixed(1)}`,
+	);
 
 	// Scan timings (10k)
 	const tScanStart = performance.now();
@@ -172,7 +212,9 @@ async function main(): Promise<void> {
 		totalScanLen += r.length;
 	}
 	const tScanMs = performance.now() - tScanStart;
-	console.log(`Scan x${formatNumber(RANGES)}: ${tScanMs.toFixed(0)} ms — ops/s ${formatNumber(Math.floor(RANGES / (tScanMs / 1000)))} — avg len ${(totalScanLen / RANGES).toFixed(1)}`);
+	console.log(
+		`Scan x${formatNumber(RANGES)}: ${tScanMs.toFixed(0)} ms — ops/s ${formatNumber(Math.floor(RANGES / (tScanMs / 1000)))} — avg len ${(totalScanLen / RANGES).toFixed(1)}`,
+	);
 }
 
 // eslint-disable-next-line unicorn/prefer-top-level-await
@@ -180,5 +222,3 @@ main().catch((err) => {
 	console.error(err);
 	process.exitCode = 1;
 });
-
-

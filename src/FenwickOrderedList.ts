@@ -22,7 +22,7 @@ export class FenwickOrderedList<T> {
 	private dirty = new Set<Segment<T>>();
 
 	constructor(
-		private readonly store: IStore<T>,
+		private readonly store: IStore,
 		private readonly maxValuesPerSegment: number,
 		private readonly cmp: (a: T, b: T) => number = defaultCmp,
 	) {}
@@ -132,8 +132,8 @@ export class FenwickOrderedList<T> {
 
 	async flush(): Promise<string[]> {
 		for (const seg of this.dirty) {
-			const arr = seg.values ?? [];
-			await this.store.set(seg.id, arr);
+			const arr = (seg.values ?? []) as T[];
+			await this.store.set<T[]>(seg.id, arr);
 		}
 		const keys = Array.from(this.dirty.values()).map((s) => s.id);
 		this.dirty.clear();
@@ -143,8 +143,8 @@ export class FenwickOrderedList<T> {
 	// internals
 	private async ensureLoaded(seg: Segment<T>): Promise<void> {
 		if (seg.values !== undefined) return;
-		const flat = (await this.store.get(seg.id)) ?? [];
-		seg.values = [...flat];
+		const flat = (await this.store.get<T[]>(seg.id)) ?? [];
+		seg.values = flat.slice();
 		seg.count = flat.length;
 		if (flat.length > 0) {
 			seg.min = flat[0] as T;
