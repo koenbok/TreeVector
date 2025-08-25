@@ -86,7 +86,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
             this.chunkPrefix,
             this.chunkCache,
         );
-        seg.values = arr.slice();
+        seg.values = arr;
         seg.count = arr.length;
     }
 

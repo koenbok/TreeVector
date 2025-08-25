@@ -43,10 +43,10 @@ export async function loadSegmentFromChunks<T>(
       }
     }
     const arr = segments?.[segNum];
-    if (arr) return arr.slice();
+    if (arr) return arr;
   }
   const flat = (await store.get<T[]>(segId)) ?? [];
-  return flat.slice();
+  return flat;
 }
 
 export async function flushSegmentsToChunks<T>(
