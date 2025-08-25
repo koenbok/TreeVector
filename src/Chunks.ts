@@ -71,11 +71,26 @@ export async function flushSegmentsToChunks<T>(
     }
     rec[segNum] = (seg.values ?? []) as T[];
   }
-  const writtenKeys: string[] = [];
-  for (const [cidx, segments] of chunkMap) {
-    const key = chunkKey(chunkPrefix, cidx);
-    await store.set(key, { segments } as { segments: Record<number, T[]> });
-    writtenKeys.push(key);
-  }
-  return writtenKeys;
+  const entries = Array.from(chunkMap.entries()).map(([cidx, dirtySegments]) => ({
+    cidx,
+    key: chunkKey(chunkPrefix, cidx),
+    dirtySegments,
+  }));
+
+  const existingChunks = await Promise.all(
+    entries.map((e) => store.get<{ segments?: Record<number, T[]> }>(e.key)),
+  );
+
+  await Promise.all(
+    entries.map(async (e, i) => {
+      const existing = existingChunks[i] ?? {};
+      const merged: { segments: Record<number, T[]> } = {
+        segments: { ...(existing.segments ?? {}) },
+      };
+      Object.assign(merged.segments, e.dirtySegments);
+      await store.set(e.key, merged as { segments: Record<number, T[]> });
+    }),
+  );
+
+  return entries.map((e) => e.key);
 }
