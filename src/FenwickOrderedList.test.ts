@@ -1,6 +1,39 @@
 import { describe, expect, it } from "bun:test";
 import { FenwickOrderedList } from "./FenwickOrderedList";
-import { MemoryStore } from "./Store";
+import { type IStore, MemoryStore } from "./Store";
+
+class TracingStore<T> implements IStore {
+	private inner = new MemoryStore<T>();
+	public activeGets = 0;
+	public maxActiveGets = 0;
+	public totalGets = 0;
+	constructor(private readonly delayMs = 5) {}
+	async get<K = unknown>(key: string): Promise<K | undefined> {
+		this.totalGets += 1;
+		this.activeGets += 1;
+		this.maxActiveGets = Math.max(this.maxActiveGets, this.activeGets);
+		await new Promise((r) => setTimeout(r, this.delayMs));
+		const v = await this.inner.get<K>(key);
+		this.activeGets -= 1;
+		return v;
+	}
+	async set<K = unknown>(key: string, value: K): Promise<void> {
+		await this.inner.set<K>(key, value);
+	}
+	reset(): void {
+		this.activeGets = 0;
+		this.maxActiveGets = 0;
+		this.totalGets = 0;
+	}
+}
+
+class TestFenwickOrderedList<T> extends FenwickOrderedList<T> {
+	dropValues(): void {
+		for (const seg of this.segments) {
+			seg.values = undefined;
+		}
+	}
+}
 
 describe("FenwickOrderedList", () => {
 	it("inserts and gets by index in order", async () => {
@@ -74,5 +107,45 @@ describe("FenwickOrderedList", () => {
 		expect(await list.getIndex(50)).toBe(49);
 		expect(await list.getIndex(1000)).toBe(999);
 		expect(await list.getIndex(1001)).toBe(1000);
+	});
+
+	it("no waterfall: scan loads needed segments in parallel", async () => {
+		const store = new TracingStore<number>(5);
+		const list = new TestFenwickOrderedList<number>(store, 4, 0);
+		// populate enough values to create multiple segments
+		for (let i = 0; i < 64; i++) await list.insert(i);
+		await list.flush();
+		list.dropValues();
+		store.reset();
+		const out = await list.scan(0, 63);
+		expect(out.length).toBe(64);
+		// ensure parallelism happened
+		expect(store.maxActiveGets).toBeGreaterThan(1);
+	});
+
+	it("no waterfall: range loads needed segments in parallel", async () => {
+		const store = new TracingStore<number>(5);
+		const list = new TestFenwickOrderedList<number>(store, 4, 0);
+		for (let i = 0; i < 64; i++) await list.insert(i);
+		await list.flush();
+		list.dropValues();
+		store.reset();
+		const out = await list.range(0, 64);
+		expect(out.length).toBe(64);
+		expect(store.maxActiveGets).toBeGreaterThan(1);
+	});
+
+	it("no waterfall: insert touches at most one segment load", async () => {
+		const store = new TracingStore<number>(5);
+		const list = new TestFenwickOrderedList<number>(store, 4, 0);
+		for (let i = 0; i < 16; i++) await list.insert(i);
+		await list.flush();
+		list.dropValues();
+		store.reset();
+		await list.insert(8.5);
+		// one segment load is enough for ordered insert
+		expect(store.totalGets).toBeLessThanOrEqual(1);
+		// no need for parallelism during a single insert
+		expect(store.maxActiveGets).toBeLessThanOrEqual(1);
 	});
 });

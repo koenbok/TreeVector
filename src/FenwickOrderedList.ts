@@ -71,10 +71,20 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
 		if (this.segments.length === 0) return out;
 		// find first segment that could contain min
 		let i = this.findFirstSegmentByMaxLowerBound(min);
-		while (i < this.segments.length) {
-			const s = this.segments[i] as Segment<T>;
+		// determine candidate range [i, j)
+		let j = i;
+		while (j < this.segments.length) {
+			const s = this.segments[j] as Segment<T>;
 			if (this.cmp(s.min, max) > 0) break;
-			await this.ensureLoaded(s);
+			j += 1;
+		}
+		// load candidates in parallel
+		await Promise.all(
+			this.segments.slice(i, j).map((s) => this.ensureLoaded(s as Segment<T>)),
+		);
+		// now collect results sequentially
+		while (i < j) {
+			const s = this.segments[i] as Segment<T>;
 			const arr = s.values as T[];
 			// Inclusive upper bound for list semantics: [min, max]
 			const start = this.lowerBoundInArray(arr, min);

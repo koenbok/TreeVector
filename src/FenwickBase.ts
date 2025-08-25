@@ -46,9 +46,15 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
 		if (b > this.totalCount) b = this.totalCount;
 		let { segIndex, localIndex } = this.findByIndex(a);
 		let remaining = b - a;
+		// Load all required segments in parallel before slicing
+		const { segIndex: endSegIndex } = this.findByIndex(b - 1);
+		await Promise.all(
+			this.segments
+				.slice(segIndex, endSegIndex + 1)
+				.map((s) => this.ensureLoaded(s as S)),
+		);
 		while (remaining > 0 && segIndex < this.segments.length) {
 			const seg = this.segments[segIndex] as S;
-			await this.ensureLoaded(seg);
 			const arr = seg.values as T[];
 			const take = Math.min(remaining, Math.max(0, arr.length - localIndex));
 			if (take > 0) out.push(...arr.slice(localIndex, localIndex + take));

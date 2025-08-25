@@ -1,6 +1,39 @@
 import { describe, expect, it } from "bun:test";
 import { FenwickList } from "./FenwickList";
-import { MemoryStore } from "./Store";
+import { type IStore, MemoryStore } from "./Store";
+
+class TracingStore<T> implements IStore {
+	private inner = new MemoryStore<T>();
+	public activeGets = 0;
+	public maxActiveGets = 0;
+	public totalGets = 0;
+	constructor(private readonly delayMs = 5) {}
+	async get<K = unknown>(key: string): Promise<K | undefined> {
+		this.totalGets += 1;
+		this.activeGets += 1;
+		this.maxActiveGets = Math.max(this.maxActiveGets, this.activeGets);
+		await new Promise((r) => setTimeout(r, this.delayMs));
+		const v = await this.inner.get<K>(key);
+		this.activeGets -= 1;
+		return v;
+	}
+	async set<K = unknown>(key: string, value: K): Promise<void> {
+		await this.inner.set<K>(key, value);
+	}
+	reset(): void {
+		this.activeGets = 0;
+		this.maxActiveGets = 0;
+		this.totalGets = 0;
+	}
+}
+
+class TestFenwickList<T> extends FenwickList<T> {
+	dropValues(): void {
+		for (const seg of this.segments) {
+			seg.values = undefined;
+		}
+	}
+}
 
 describe("FenwickList (indexed)", () => {
 	it("inserts at index and get reflects shifted positions", async () => {
@@ -71,5 +104,29 @@ describe("FenwickList (indexed)", () => {
 		await list.insertAt(128, -1);
 		expect(await list.get(128)).toBe(-1);
 		expect(await list.get(129)).toBe(128);
+	});
+
+	it("no waterfall: range loads segments in parallel", async () => {
+		const store = new TracingStore<number>(5);
+		const list = new TestFenwickList<number>(store, 4, 0);
+		for (let i = 0; i < 64; i++) await list.insertAt(i, i);
+		await list.flush();
+		list.dropValues();
+		store.reset();
+		const out = await list.range(0, 64);
+		expect(out.length).toBe(64);
+		expect(store.maxActiveGets).toBeGreaterThan(1);
+	});
+
+	it("no waterfall: insertAt triggers at most one load", async () => {
+		const store = new TracingStore<number>(5);
+		const list = new TestFenwickList<number>(store, 4, 0);
+		for (let i = 0; i < 16; i++) await list.insertAt(i, i);
+		await list.flush();
+		list.dropValues();
+		store.reset();
+		await list.insertAt(8, 99);
+		expect(store.totalGets).toBeLessThanOrEqual(1);
+		expect(store.maxActiveGets).toBeLessThanOrEqual(1);
 	});
 });
