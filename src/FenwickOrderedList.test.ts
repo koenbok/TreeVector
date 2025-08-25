@@ -7,7 +7,7 @@ class TracingStore<T> implements IStore {
   public activeGets = 0;
   public maxActiveGets = 0;
   public totalGets = 0;
-  constructor(private readonly delayMs = 5) {}
+  constructor(private readonly delayMs = 5) { }
   async get<K = unknown>(key: string): Promise<K | undefined> {
     this.totalGets += 1;
     this.activeGets += 1;
@@ -48,13 +48,13 @@ describe("FenwickOrderedList", () => {
     }
   });
 
-  it("scan(min,max) returns sorted values within bounds", async () => {
+  it("scan(min,max) returns sorted values within [min,max) bounds", async () => {
     const store = new MemoryStore<number>();
     const list = new FenwickOrderedList<number>(store, 512);
     const values = [10, 2, 7, 5, 1, 3, 9, 6, 4, 8];
     for (const v of values) await list.insert(v);
     const out = await list.scan(3, 7);
-    expect(out).toEqual([3, 4, 5, 6, 7]);
+    expect(out).toEqual([3, 4, 5, 6]);
   });
 
   it("handles duplicates and keeps them contiguous", async () => {
@@ -66,8 +66,17 @@ describe("FenwickOrderedList", () => {
       Array.from({ length: values.length }, (_, i) => list.get(i)),
     );
     expect(got).toEqual([1, 1, 2, 2, 2, 3]);
-    const dupRange = await list.scan(2, 2);
+    const dupRange = await list.scan(2, 3);
     expect(dupRange).toEqual([2, 2, 2]);
+  });
+
+  it("scan excludes max and handles duplicates with [min,max) semantics", async () => {
+    const store = new MemoryStore<number>();
+    const list = new FenwickOrderedList<number>(store, 128);
+    for (const v of [1, 2, 2, 3, 4, 5]) await list.insert(v);
+    expect(await list.scan(2, 5)).toEqual([2, 2, 3, 4]);
+    expect(await list.scan(5, 6)).toEqual([5]);
+    expect(await list.scan(5, 5)).toEqual([]);
   });
 
   it("range(min,max) returns values by index slice [min,max)", async () => {
@@ -117,7 +126,7 @@ describe("FenwickOrderedList", () => {
     await list.flush();
     list.dropValues();
     store.reset();
-    const out = await list.scan(0, 63);
+    const out = await list.scan(0, 64);
     expect(out.length).toBe(64);
     // ensure parallelism happened
     expect(store.maxActiveGets).toBeGreaterThan(1);

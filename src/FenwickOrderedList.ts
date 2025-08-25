@@ -66,6 +66,11 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     return super.range(minIndex, maxIndex);
   }
 
+  /**
+   * Returns all values v such that min <= v < max, in sorted order.
+   * Semantics are [min, max), i.e. max is exclusive. This matches common
+   * library conventions (e.g. C++ lower_bound/upper_bound style ranges).
+   */
   async scan(min: T, max: T): Promise<T[]> {
     const out: T[] = [];
     if (this.segments.length === 0) return out;
@@ -75,7 +80,8 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     let j = i;
     while (j < this.segments.length) {
       const s = this.segments[j] as Segment<T>;
-      if (this.cmp(s.min, max) > 0) break;
+      // [min, max) semantics: stop once the next segment's min >= max
+      if (this.cmp(s.min, max) >= 0) break;
       j += 1;
     }
     // load candidates in parallel
@@ -86,9 +92,9 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     while (i < j) {
       const s = this.segments[i] as Segment<T>;
       const arr = s.values as T[];
-      // Inclusive upper bound for list semantics: [min, max]
+      // [min, max) semantics: lower_bound(min), lower_bound(max)
       const start = this.lowerBoundInArray(arr, min);
-      const end = this.upperBoundInArray(arr, max);
+      const end = this.lowerBoundInArray(arr, max);
       if (start < end) out.push(...arr.slice(start, end));
       if (end < arr.length) return out; // ended inside this segment
       i += 1;
