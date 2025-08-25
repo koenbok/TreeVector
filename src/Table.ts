@@ -5,10 +5,10 @@ type Row = Record<string, unknown>;
 
 export class Table<T> {
   constructor(
-    private store: IStore<T>,
+    private store: IStore,
     private order: { key: string; column: OrderedColumnInterface<T> },
     private columns: Record<string, IndexedColumnInterface<T>>,
-  ) {}
+  ) { }
 
   async insert(rows: Row[]): Promise<void> {
     for (const row of rows) {
@@ -40,9 +40,9 @@ export class Table<T> {
     return row;
   }
 
-  async range(limit?: number, offset?: number): Promise<Row[]> {
-    const a = offset ?? 0;
-    const b = a + (limit ?? 0);
+  async range(offset?: number, limit?: number): Promise<Row[]> {
+    const a = Math.max(0, offset ?? 0);
+    const b = a + (limit ?? Number.POSITIVE_INFINITY);
 
     const orderValues = await this.order.column.range(a, b);
     const otherEntries: [string, T[]][] = await Promise.all(

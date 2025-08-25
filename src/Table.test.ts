@@ -34,7 +34,28 @@ describe("Table", () => {
     expect(r2).toEqual({ name: 300 });
   });
 
-  it("range(limit, offset) returns rows in index slice", async () => {
+  it("range(offset, limit) returns rows in index slice", async () => {
+    const store = new MemoryStore();
+    const table = new Table<number>(
+      store,
+      { key: "id", column: new FenwickOrderedColumn<number>(store, 4, 10) },
+      {
+        name: new FenwickColumn<number>(store, 4, 10),
+      } as unknown as Record<string, FenwickColumn<number>>,
+    );
+
+    await table.insert([
+      { id: 10, name: 100 },
+      { id: 30, name: 300 },
+      { id: 20, name: 200 },
+      { id: 40, name: 400 },
+    ]);
+    const rows = await table.range(1, 2); // indices 1..2 -> ids [20,30]
+    expect(rows.map((r) => r.id)).toEqual([20, 30]);
+    expect(rows.map((r) => r.name)).toEqual([200, 300]);
+  });
+
+  it("range with undefined limit returns to the end", async () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
@@ -51,9 +72,9 @@ describe("Table", () => {
       { id: 40, name: 400 },
     ]);
 
-    const rows = await table.range(2, 1); // indices 1..2 -> ids [20,30]
-    expect(rows.map((r) => r.id)).toEqual([20, 30]);
-    expect(rows.map((r) => r.name)).toEqual([200, 300]);
+    const rows = await table.range(2); // from index 2 to end -> ids [30,40]
+    expect(rows.map((r) => r.id)).toEqual([30, 40]);
+    expect(rows.map((r) => r.name)).toEqual([300, 400]);
   });
 
   it("throws if a row is missing the order key", async () => {
