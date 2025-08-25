@@ -136,6 +136,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     }
 
     protected prefixSum(endExclusive: number): number {
+        if (endExclusive <= 0 || this.fenwick.length === 0) return 0;
         let sum = 0;
         let i = endExclusive;
         while (i > 0) {
@@ -146,6 +147,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     }
 
     protected addFenwick(index: number, delta: number): void {
+        if (index < 0 || this.fenwick.length === 0) return;
         let i = index + 1;
         while (i <= this.fenwick.length) {
             this.fenwick[i - 1] = (this.fenwick[i - 1] ?? 0) + delta;
