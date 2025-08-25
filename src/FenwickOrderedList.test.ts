@@ -35,6 +35,15 @@ class TestFenwickOrderedList<T> extends FenwickOrderedList<T> {
   }
 }
 
+// New helper to count full fenwick rebuilds
+class CountingFenwickOrderedList<T> extends FenwickOrderedList<T> {
+  public rebuildCalls = 0;
+  protected rebuildFenwick(): void {
+    this.rebuildCalls += 1;
+    super.rebuildFenwick();
+  }
+}
+
 describe("FenwickOrderedList", () => {
   it("inserts and gets by index in order", async () => {
     const store = new MemoryStore<number>();
@@ -156,5 +165,15 @@ describe("FenwickOrderedList", () => {
     expect(store.totalGets).toBeLessThanOrEqual(1);
     // no need for parallelism during a single insert
     expect(store.maxActiveGets).toBeLessThanOrEqual(1);
+  });
+
+  it("incremental fenwick: avoids full rebuild on split (only initial rebuild)", async () => {
+    const store = new MemoryStore<number>();
+    const list = new CountingFenwickOrderedList<number>(store, 4, 0);
+    const N = 128;
+    for (let i = 0; i < N; i++) {
+      await list.insert(i);
+    }
+    expect(list.rebuildCalls).toBe(1);
   });
 });

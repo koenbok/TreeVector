@@ -3,11 +3,11 @@ import { FenwickList } from "./FenwickList";
 import { type IStore, MemoryStore } from "./Store";
 
 class TracingStore<T> implements IStore {
-  private inner = new MemoryStore<T>();
+  private inner = new MemoryStore();
   public activeGets = 0;
   public maxActiveGets = 0;
   public totalGets = 0;
-  constructor(private readonly delayMs = 5) {}
+  constructor(private readonly delayMs = 5) { }
   async get<K = unknown>(key: string): Promise<K | undefined> {
     this.totalGets += 1;
     this.activeGets += 1;
@@ -35,10 +35,19 @@ class TestFenwickList<T> extends FenwickList<T> {
   }
 }
 
+// New helper to count full fenwick rebuilds
+class CountingFenwickList<T> extends FenwickList<T> {
+  public rebuildCalls = 0;
+  protected override rebuildFenwick(): void {
+    this.rebuildCalls += 1;
+    super.rebuildFenwick();
+  }
+}
+
 describe("FenwickList (indexed)", () => {
   it("inserts at index and get reflects shifted positions", async () => {
-    const store = new MemoryStore<number>();
-    const list = new FenwickList<number>(store, 64);
+    const store = new MemoryStore();
+    const list = new FenwickList<number>(store, 64, 0);
     await list.insertAt(0, 2);
     await list.insertAt(0, 1); // [1,2]
     await list.insertAt(2, 4); // [1,2,4]
@@ -50,8 +59,8 @@ describe("FenwickList (indexed)", () => {
   });
 
   it("range(min,max) returns slice [min,max)", async () => {
-    const store = new MemoryStore<number>();
-    const list = new FenwickList<number>(store, 64);
+    const store = new MemoryStore();
+    const list = new FenwickList<number>(store, 64, 0);
     for (const v of [10, 20, 30, 40, 50]) await list.insertAt(999, v); // append
     expect(await list.range(1, 4)).toEqual([20, 30, 40]);
     expect(await list.range(0, 2)).toEqual([10, 20]);
@@ -59,8 +68,8 @@ describe("FenwickList (indexed)", () => {
   });
 
   it("handles gaps with out-of-range get and appending beyond length", async () => {
-    const store = new MemoryStore<number>();
-    const list = new FenwickList<number>(store, 64);
+    const store = new MemoryStore();
+    const list = new FenwickList<number>(store, 64, 0);
     expect(await list.get(5)).toBeUndefined();
     expect(await list.range(3, 7)).toEqual([]);
 
@@ -75,8 +84,8 @@ describe("FenwickList (indexed)", () => {
   });
 
   it("inserting in the middle shifts subsequent elements", async () => {
-    const store = new MemoryStore<number>();
-    const list = new FenwickList<number>(store, 64);
+    const store = new MemoryStore();
+    const list = new FenwickList<number>(store, 64, 0);
     for (const v of [1, 3, 4]) await list.insertAt(999, v); // [1,3,4]
     await list.insertAt(1, 2); // -> [1,2,3,4]
     expect(await list.get(0)).toBe(1);
@@ -86,17 +95,17 @@ describe("FenwickList (indexed)", () => {
   });
 
   it("range with min==max and min>max returns empty slice", async () => {
-    const store = new MemoryStore<number>();
-    const list = new FenwickList<number>(store, 64);
+    const store = new MemoryStore();
+    const list = new FenwickList<number>(store, 64, 0);
     for (const v of [10, 20, 30]) await list.insertAt(999, v);
     expect(await list.range(1, 1)).toEqual([]);
     expect(await list.range(2, 1)).toEqual([]);
   });
 
   it("scales across multiple segments and preserves order", async () => {
-    const store = new MemoryStore<number>();
+    const store = new MemoryStore();
     // small segment size to force many splits
-    const list = new FenwickList<number>(store, 8);
+    const list = new FenwickList<number>(store, 8, 0);
     const N = 256;
     for (let i = 0; i < N; i++) await list.insertAt(i, i);
     for (let i = 0; i < N; i++) expect(await list.get(i)).toBe(i);
@@ -128,5 +137,15 @@ describe("FenwickList (indexed)", () => {
     await list.insertAt(8, 99);
     expect(store.totalGets).toBeLessThanOrEqual(1);
     expect(store.maxActiveGets).toBeLessThanOrEqual(1);
+  });
+
+  it("incremental fenwick: avoids full rebuild on split (only initial rebuild)", async () => {
+    const store = new MemoryStore();
+    const list = new CountingFenwickList<number>(store, 4, 0);
+    const N = 128;
+    for (let i = 0; i < N; i++) {
+      await list.insertAt(i, i);
+    }
+    expect(list.rebuildCalls).toBe(1);
   });
 });

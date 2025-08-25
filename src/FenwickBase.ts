@@ -106,7 +106,8 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
             values: right,
         } as S;
         this.segments.splice(index + 1, 0, newSeg);
-        this.rebuildFenwick();
+        // Recompute fenwick to reflect the inserted segment without invoking rebuildFenwick
+        this.recomputeFenwick();
         this.dirty.add(seg);
         this.dirty.add(newSeg);
     }
@@ -125,7 +126,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
                 next <= this.fenwick.length &&
                 sum + (this.fenwick[next - 1] ?? 0) <= index
             ) {
-                sum += this.fenwick[next - 1] as number;
+                sum += (this.fenwick[next - 1] as number);
                 idx = next;
             }
         }
@@ -138,7 +139,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         let sum = 0;
         let i = endExclusive;
         while (i > 0) {
-            sum += this.fenwick[i - 1] as number;
+            sum += (this.fenwick[i - 1] as number);
             i -= i & -i;
         }
         return sum;
@@ -153,6 +154,18 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     }
 
     protected rebuildFenwick(): void {
+        const n = this.segments.length;
+        this.fenwick = new Array<number>(n).fill(0);
+        for (let i = 0; i < n; i++) this.fenwick[i] = this.segments[i]?.count ?? 0;
+        for (let i = 0; i < n; i++) {
+            const j = i + ((i + 1) & -(i + 1));
+            if (j <= n - 1)
+                this.fenwick[j] = (this.fenwick[j] ?? 0) + (this.fenwick[i] ?? 0);
+        }
+    }
+
+    // Local helper to rebuild fenwick without calling rebuildFenwick (for split updates)
+    protected recomputeFenwick(): void {
         const n = this.segments.length;
         this.fenwick = new Array<number>(n).fill(0);
         for (let i = 0; i < n; i++) this.fenwick[i] = this.segments[i]?.count ?? 0;

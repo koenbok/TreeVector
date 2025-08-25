@@ -145,7 +145,7 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
       values: right,
     };
     this.segments.splice(index + 1, 0, newSeg);
-    this.rebuildFenwick();
+    this.recomputeFenwick();
     this.dirty.add(segment);
     this.dirty.add(newSeg);
   }
