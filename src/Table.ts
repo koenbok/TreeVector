@@ -33,9 +33,15 @@ export class Table<T> {
   }
 
   async get(index: number): Promise<Row> {
+    const columnEntries = Object.entries(this.columns);
+    const values = await Promise.all(
+      columnEntries.map(([, column]) => column.get(index)),
+    );
+
     const row: Row = {};
-    for (const [key, column] of Object.entries(this.columns)) {
-      row[key] = await column.get(index);
+    for (let i = 0; i < columnEntries.length; i++) {
+      const key = columnEntries[i]?.[0]!;
+      row[key] = values[i];
     }
     return row;
   }
