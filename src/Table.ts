@@ -1,14 +1,48 @@
-import type { IndexedColumnInterface, OrderedColumnInterface } from "./Column";
+import { FenwickColumn, type IndexedColumnInterface, type OrderedColumnInterface } from "./Column";
 import type { IStore } from "./Store";
 
 type Row = Record<string, unknown>;
 
 export class Table<T> {
+  private columns: Record<string, IndexedColumnInterface<unknown>>;
+  private readonly defaultSegmentN: number;
+  private readonly defaultChunkN: number;
+
   constructor(
     private store: IStore,
     private order: { key: string; column: OrderedColumnInterface<T> },
-    private columns: Record<string, IndexedColumnInterface<T>>,
-  ) { }
+    columns?: Record<string, IndexedColumnInterface<unknown>>,
+    opts?: { segmentN?: number; chunkN?: number },
+  ) {
+    this.columns = columns ?? {};
+    this.defaultSegmentN = opts?.segmentN ?? 8192;
+    this.defaultChunkN = opts?.chunkN ?? 0;
+  }
+
+  private ensureColumnFor(key: string, sample: unknown): IndexedColumnInterface<unknown> {
+    const existing = this.columns[key];
+    if (existing) return existing;
+    const t = typeof sample;
+    if (t === "number") {
+      const col = new FenwickColumn<number>(
+        this.store,
+        this.defaultSegmentN,
+        this.defaultChunkN,
+      );
+      this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
+      return this.columns[key] as IndexedColumnInterface<unknown>;
+    }
+    if (t === "string") {
+      const col = new FenwickColumn<string>(
+        this.store,
+        this.defaultSegmentN,
+        this.defaultChunkN,
+      );
+      this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
+      return this.columns[key] as IndexedColumnInterface<unknown>;
+    }
+    throw new Error(`Unsupported column type for key "${key}": ${t}`);
+  }
 
   async insert(rows: Row[]): Promise<void> {
     for (const row of rows) {
@@ -18,15 +52,14 @@ export class Table<T> {
       }
       const index = await this.order.column.insert(value as T);
 
-      // Insert non-order columns in parallel for this row
+      // Insert non-order columns in parallel for this row.
+      // Columns are created on-demand based on the value type (number|string).
       const tasks: Array<Promise<void>> = [];
       for (const rowKey in row) {
         if (rowKey === this.order.key) continue;
-        const otherColumn = this.columns[rowKey];
-        if (!otherColumn) {
-          throw new Error(`Column ${rowKey} not found`);
-        }
-        tasks.push(otherColumn.insert(index, row[rowKey] as T));
+        const value = row[rowKey];
+        const col = this.ensureColumnFor(rowKey, value);
+        tasks.push(col.insert(index, value as unknown as T));
       }
       await Promise.all(tasks);
     }
