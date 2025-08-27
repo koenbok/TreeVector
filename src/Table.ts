@@ -55,12 +55,35 @@ export class Table<T> {
       // Insert non-order columns in parallel for this row.
       // Columns are created on-demand based on the value type (number|string).
       const tasks: Array<Promise<void>> = [];
+      // Snapshot existing columns before processing this row to avoid
+      // including columns introduced by this row in the padding step.
+      const preExistingKeys = Object.keys(this.columns);
+      let missingPreExistingCount = preExistingKeys.length;
+
       for (const rowKey in row) {
+        if (!Object.prototype.hasOwnProperty.call(row, rowKey)) continue;
         if (rowKey === this.order.key) continue;
-        const value = row[rowKey];
-        const col = this.ensureColumnFor(rowKey, value);
-        tasks.push(col.insert(index, value as unknown as T));
+
+        if (Object.prototype.hasOwnProperty.call(this.columns, rowKey)) {
+          missingPreExistingCount -= 1;
+        }
+
+        const v = row[rowKey];
+        const col = this.ensureColumnFor(rowKey, v);
+        tasks.push(col.insert(index, v as unknown as T));
       }
+
+      // Only if some pre-existing columns were not present in this row,
+      // pad them with undefined to keep alignment.
+      if (missingPreExistingCount > 0) {
+        for (const key of preExistingKeys) {
+          if (key === this.order.key) continue;
+          if (Object.prototype.hasOwnProperty.call(row, key)) continue;
+          const col = this.columns[key] as IndexedColumnInterface<unknown>;
+          tasks.push(col.insert(index, undefined as unknown as T));
+        }
+      }
+
       await Promise.all(tasks);
     }
   }
