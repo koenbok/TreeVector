@@ -94,8 +94,9 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         const seg = this.segments[index] as S;
         const arr = seg.values as T[];
         const mid = arr.length >>> 1;
-        const left = arr.slice(0, mid);
-        const right = arr.slice(mid);
+        // Avoid double-copy: mutate original array to keep left half, splice to obtain right
+        const right = arr.splice(mid);
+        const left = arr; // arr now holds the left half
         if (left.length === 0 || right.length === 0) return;
 
         seg.values = left;

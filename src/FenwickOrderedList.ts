@@ -129,8 +129,8 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     const segment = this.segments[index] as Segment<T>;
     const arr = segment.values as T[];
     const mid = arr.length >>> 1;
-    const left = arr.slice(0, mid);
-    const right = arr.slice(mid);
+    const right = arr.splice(mid);
+    const left = arr; // reuse original array for left half
     if (left.length === 0 || right.length === 0) return;
 
     segment.values = left;

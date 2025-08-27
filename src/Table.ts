@@ -18,17 +18,17 @@ export class Table<T> {
       }
       const index = await this.order.column.insert(value as T);
 
+      // Insert non-order columns in parallel for this row
+      const tasks: Array<Promise<void>> = [];
       for (const rowKey in row) {
-        if (rowKey === this.order.key) {
-          continue;
-        }
+        if (rowKey === this.order.key) continue;
         const otherColumn = this.columns[rowKey];
-        if (otherColumn) {
-          await otherColumn.insert(index, row[rowKey] as T);
-        } else {
+        if (!otherColumn) {
           throw new Error(`Column ${rowKey} not found`);
         }
+        tasks.push(otherColumn.insert(index, row[rowKey] as T));
       }
+      await Promise.all(tasks);
     }
   }
 
@@ -80,8 +80,10 @@ export class Table<T> {
   }
 
   async flush(): Promise<void> {
-    await Promise.all(
-      Object.values(this.columns).map((column) => column.flush()),
-    );
+    // Flush order column and all other columns in parallel
+    await Promise.all([
+      this.order.column.flush(),
+      ...Object.values(this.columns).map((column) => column.flush()),
+    ]);
   }
 }
