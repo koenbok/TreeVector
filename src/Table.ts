@@ -26,8 +26,7 @@ export class Table<T> {
     if (t === "number") {
       const col = new FenwickColumn<number>(
         this.store,
-        this.defaultSegmentN,
-        this.defaultChunkN,
+        { segmentN: this.defaultSegmentN, chunkN: this.defaultChunkN, chunkPrefix: "chunk_", idPrefix: "seg_" },
       );
       this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
       return this.columns[key] as IndexedColumnInterface<unknown>;
@@ -35,8 +34,7 @@ export class Table<T> {
     if (t === "string") {
       const col = new FenwickColumn<string>(
         this.store,
-        this.defaultSegmentN,
-        this.defaultChunkN,
+        { segmentN: this.defaultSegmentN, chunkN: this.defaultChunkN, chunkPrefix: "chunk_", idPrefix: "seg_" },
       );
       this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
       return this.columns[key] as IndexedColumnInterface<unknown>;

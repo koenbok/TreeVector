@@ -10,9 +10,9 @@ describe("Table", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, 4, 10) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 4, chunkN: 10, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
       {
-        name: new FenwickColumn<number>(store, 4, 10),
+        name: new FenwickColumn<number>(store, { segmentN: 4, chunkN: 10, chunkPrefix: "chunk_", idPrefix: "seg_" }),
       } as unknown as Record<string, FenwickColumn<number>>,
     );
 
@@ -38,9 +38,9 @@ describe("Table", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, 4, 10) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 4, chunkN: 10, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
       {
-        name: new FenwickColumn<number>(store, 4, 10),
+        name: new FenwickColumn<number>(store, { segmentN: 4, chunkN: 10, chunkPrefix: "chunk_", idPrefix: "seg_" }),
       } as unknown as Record<string, FenwickColumn<number>>,
     );
 
@@ -59,9 +59,9 @@ describe("Table", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, 4, 10) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 4, chunkN: 10, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
       {
-        name: new FenwickColumn<number>(store, 4, 10),
+        name: new FenwickColumn<number>(store, { segmentN: 4, chunkN: 10, chunkPrefix: "chunk_", idPrefix: "seg_" }),
       } as unknown as Record<string, FenwickColumn<number>>,
     );
 
@@ -81,8 +81,8 @@ describe("Table", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, 4, 10) },
-      { name: new FenwickColumn<number>(store, 4, 10) } as unknown as Record<
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 4, chunkN: 10, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
+      { name: new FenwickColumn<number>(store, { segmentN: 4, chunkN: 10, chunkPrefix: "chunk_", idPrefix: "seg_" }) } as unknown as Record<
         string,
         FenwickColumn<number>
       >,

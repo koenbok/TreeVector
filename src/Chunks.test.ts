@@ -8,17 +8,21 @@ describe("flushSegmentsToChunks", () => {
         const segmentsPerChunk = 2; // seg_0 and seg_1 share chunk_0
 
         // First flush seg_0 into chunk_0
+        const cache1 = new Map([["seg_0", [1]]]);
         await flushSegmentsToChunks<number>(
             store,
-            [{ id: "seg_0", values: [1] }],
+            [{ id: "seg_0" }],
+            cache1,
             segmentsPerChunk,
             "chunk_",
         );
 
         // Then flush seg_1 into the same chunk_0
+        const cache2 = new Map([["seg_1", [2]]]);
         await flushSegmentsToChunks<number>(
             store,
-            [{ id: "seg_1", values: [2] }],
+            [{ id: "seg_1" }],
+            cache2,
             segmentsPerChunk,
             "chunk_",
         );

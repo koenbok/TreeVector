@@ -76,7 +76,7 @@ function makeHistogram(
   for (const v of values) {
     let bin = Math.floor((v - min) / binSize);
     if (bin >= numBins) bin = numBins - 1; // guard max edge
-    counts[bin] += 1;
+    counts[bin]! += 1;
   }
   const ranges: [number, number][] = [];
   for (let i = 0; i < numBins; i++) {
@@ -98,8 +98,7 @@ async function main(): Promise<void> {
   const store = new MemoryStore();
   const list = new FenwickOrderedList<number>(
     store,
-    MAX_PER_SEGMENT,
-    SEGMENTS_PER_CHUNK as number,
+    { segmentN: MAX_PER_SEGMENT, chunkN: SEGMENTS_PER_CHUNK as number, chunkPrefix: "ochunk_", idPrefix: "oseg_" },
     (a, b) => (a < b ? -1 : a > b ? 1 : 0),
   );
 

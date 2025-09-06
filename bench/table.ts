@@ -115,11 +115,11 @@ async function main(): Promise<void> {
       const label = `fenwick(seg=${seg},chunk=${chk})`;
       const res = await runScenario(
         label,
-        (store) => new FenwickOrderedColumn<number>(store, seg, chk),
+        (store) => new FenwickOrderedColumn<number>(store, { segmentN: seg, chunkN: chk, chunkPrefix: "ochunk_", idPrefix: "oseg_" }),
         () => ({
-          a: new FenwickColumn<number>(new MemoryStore(), seg, chk),
-          b: new FenwickColumn<number>(new MemoryStore(), seg, chk),
-          c: new FenwickColumn<number>(new MemoryStore(), seg, chk),
+          a: new FenwickColumn<number>(new MemoryStore(), { segmentN: seg, chunkN: chk, chunkPrefix: "chunk_", idPrefix: "seg_" }),
+          b: new FenwickColumn<number>(new MemoryStore(), { segmentN: seg, chunkN: chk, chunkPrefix: "chunk_", idPrefix: "seg_" }),
+          c: new FenwickColumn<number>(new MemoryStore(), { segmentN: seg, chunkN: chk, chunkPrefix: "chunk_", idPrefix: "seg_" }),
         }),
         rows,
       );

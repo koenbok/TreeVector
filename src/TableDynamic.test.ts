@@ -8,7 +8,7 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, 8, 0) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 8, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
       /* columns */ undefined,
       { segmentN: 8, chunkN: 0 },
     );
@@ -37,7 +37,7 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, 8, 0) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 8, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
       undefined,
       { segmentN: 8, chunkN: 0 },
     );
@@ -61,7 +61,7 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, 8, 0) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 8, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
       undefined,
       { segmentN: 8, chunkN: 0 },
     );
@@ -79,7 +79,7 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, 8, 0) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 8, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
       undefined,
       { segmentN: 4, chunkN: 0 },
     );

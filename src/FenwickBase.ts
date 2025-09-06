@@ -8,32 +8,57 @@ import {
 export type BaseSegment<T> = {
     id: string;
     count: number;
-    values?: T[];
 };
 
+export type MakeOptional<T, K extends keyof T> =
+    Simplify<Omit<T, K> & Partial<Pick<T, K>>>;
+
+export type FenwickBaseMeta<T, S extends BaseSegment<T>> = {
+    segmentN: number;
+    chunkN: number;
+    chunkPrefix: string;
+    idPrefix: string;
+    segments: S[];
+}
+
+type Simplify<T> = { [P in keyof T]: T[P] };
+
 export abstract class FenwickBase<T, S extends BaseSegment<T>> {
-    protected segments: S[] = [];
+    // protected segments: S[] = [];
+    protected meta!: FenwickBaseMeta<T, S>;
     protected fenwick: number[] = [];
     protected totalCount = 0;
     protected nextId = 0;
     protected dirty = new Set<S>();
     protected chunkCache: ChunkCache<T> | undefined;
+    protected segmentCache = new Map<string, T[]>();
 
     protected constructor(
         protected readonly store: IStore,
-        protected readonly segmentN: number,
-        protected readonly chunkN: number,
-        private readonly chunkPrefix: string,
-        private readonly idPrefix: string,
-    ) { }
+        meta: MakeOptional<FenwickBaseMeta<T, S>, "segments">,
+    ) {
+        this.setMeta(meta);
+    }
+
+    setMeta(meta: MakeOptional<FenwickBaseMeta<T, S>, "segments">): void {
+        const mutableMeta = { ...meta };
+        if (!mutableMeta.segments) mutableMeta.segments = [];
+        this.meta = mutableMeta as FenwickBaseMeta<T, S>;
+    }
+
+    getMeta(): FenwickBaseMeta<T, S> {
+        return this.meta;
+    }
+
 
     // ---- public ops shared ----
     async get(index: number): Promise<T | undefined> {
         if (index < 0 || index >= this.totalCount) return undefined;
         const { segIndex, localIndex } = this.findByIndex(index);
-        const seg = this.segments[segIndex] as S;
+        const seg = this.meta.segments[segIndex] as S;
         await this.ensureLoaded(seg);
-        return (seg.values as T[])[localIndex] as T;
+        const arr = this.segmentCache.get(seg.id)!;
+        return arr[localIndex] as T;
     }
 
     async range(minIndex: number, maxIndex: number): Promise<T[]> {
@@ -49,13 +74,13 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         // Load all required segments in parallel before slicing
         const { segIndex: endSegIndex } = this.findByIndex(b - 1);
         await Promise.all(
-            this.segments
+            this.meta.segments
                 .slice(segIndex, endSegIndex + 1)
                 .map((s) => this.ensureLoaded(s as S)),
         );
-        while (remaining > 0 && segIndex < this.segments.length) {
-            const seg = this.segments[segIndex] as S;
-            const arr = seg.values as T[];
+        while (remaining > 0 && segIndex < this.meta.segments.length) {
+            const seg = this.meta.segments[segIndex] as S;
+            const arr = this.segmentCache.get(seg.id)!;
             const take = Math.min(remaining, Math.max(0, arr.length - localIndex));
             if (take > 0) out.push(...arr.slice(localIndex, localIndex + take));
             remaining -= take;
@@ -69,8 +94,9 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         const keys = await flushSegmentsToChunks<T>(
             this.store,
             Array.from(this.dirty.values()),
-            this.chunkN,
-            this.chunkPrefix,
+            this.segmentCache,
+            this.meta.chunkN,
+            this.meta.chunkPrefix,
         );
         this.dirty.clear();
         return keys;
@@ -78,35 +104,35 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
 
     // ---- internals shared ----
     protected async ensureLoaded(seg: S): Promise<void> {
-        if (seg.values !== undefined) return;
+        if (this.segmentCache.has(seg.id)) return;
         const arr = await loadSegmentFromChunks<T>(
             this.store,
             seg.id,
-            this.chunkN,
-            this.chunkPrefix,
+            this.meta.chunkN,
+            this.meta.chunkPrefix,
             this.chunkCache,
         );
-        seg.values = arr;
+        this.segmentCache.set(seg.id, arr);
         seg.count = arr.length;
     }
 
     protected splitSegment(index: number): void {
-        const seg = this.segments[index] as S;
-        const arr = seg.values as T[];
+        const seg = this.meta.segments[index] as S;
+        const arr = this.segmentCache.get(seg.id)!;
         const mid = arr.length >>> 1;
         // Avoid double-copy: mutate original array to keep left half, splice to obtain right
         const right = arr.splice(mid);
         const left = arr; // arr now holds the left half
         if (left.length === 0 || right.length === 0) return;
 
-        seg.values = left;
+        this.segmentCache.set(seg.id, left);
         seg.count = left.length;
         const newSeg = {
             id: this.newId(),
             count: right.length,
-            values: right,
         } as S;
-        this.segments.splice(index + 1, 0, newSeg);
+        this.segmentCache.set(newSeg.id, right);
+        this.meta.segments.splice(index + 1, 0, newSeg);
         // Recompute fenwick to reflect the inserted segment without invoking rebuildFenwick
         this.recomputeFenwick();
         this.dirty.add(seg);
@@ -131,7 +157,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
                 idx = next;
             }
         }
-        const segIndex = Math.min(idx, this.segments.length - 1);
+        const segIndex = Math.min(idx, this.meta.segments.length - 1);
         const local = index - sum;
         return { segIndex, localIndex: local };
     }
@@ -157,9 +183,9 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     }
 
     protected rebuildFenwick(): void {
-        const n = this.segments.length;
+        const n = this.meta.segments.length;
         this.fenwick = new Array<number>(n).fill(0);
-        for (let i = 0; i < n; i++) this.fenwick[i] = this.segments[i]?.count ?? 0;
+        for (let i = 0; i < n; i++) this.fenwick[i] = this.meta.segments[i]?.count ?? 0;
         for (let i = 0; i < n; i++) {
             const j = i + ((i + 1) & -(i + 1));
             if (j <= n - 1)
@@ -169,9 +195,9 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
 
     // Local helper to rebuild fenwick without calling rebuildFenwick (for split updates)
     protected recomputeFenwick(): void {
-        const n = this.segments.length;
+        const n = this.meta.segments.length;
         this.fenwick = new Array<number>(n).fill(0);
-        for (let i = 0; i < n; i++) this.fenwick[i] = this.segments[i]?.count ?? 0;
+        for (let i = 0; i < n; i++) this.fenwick[i] = this.meta.segments[i]?.count ?? 0;
         for (let i = 0; i < n; i++) {
             const j = i + ((i + 1) & -(i + 1));
             if (j <= n - 1)
@@ -180,7 +206,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     }
 
     protected newId(): string {
-        const id = `${this.idPrefix}${this.nextId}`;
+        const id = `${this.meta.idPrefix}${this.nextId}`;
         this.nextId += 1;
         return id;
     }

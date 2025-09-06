@@ -9,11 +9,11 @@ import { MemoryStore } from "./Store";
 
 const SortedColumns: Record<string, () => OrderedColumnInterface<number>> = {
   FenwickOrderedColumn: () =>
-    new FenwickOrderedColumn<number>(new MemoryStore(), 10, 10),
+    new FenwickOrderedColumn<number>(new MemoryStore(), { segmentN: 10, chunkN: 10, chunkPrefix: "ochunk_", idPrefix: "oseg_" }),
 };
 
 const IndexedColumns: Record<string, () => IndexedColumnInterface<number>> = {
-  FenwickColumn: () => new FenwickColumn<number>(new MemoryStore(), 10, 10),
+  FenwickColumn: () => new FenwickColumn<number>(new MemoryStore(), { segmentN: 10, chunkN: 10, chunkPrefix: "chunk_", idPrefix: "seg_" }),
 };
 
 for (const [name, ctor] of Object.entries(SortedColumns)) {

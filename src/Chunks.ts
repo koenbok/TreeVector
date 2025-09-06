@@ -51,13 +51,14 @@ export async function loadSegmentFromChunks<T>(
 
 export async function flushSegmentsToChunks<T>(
   store: IStore,
-  dirty: Array<{ id: string; values?: T[] }>,
+  dirty: Array<{ id: string }>,
+  segmentCache: Map<string, T[]>,
   segmentsPerChunk?: number,
   chunkPrefix = "chunk_",
 ): Promise<string[]> {
   if (!segmentsPerChunk || segmentsPerChunk <= 0) {
     for (const seg of dirty)
-      await store.set<T[]>(seg.id, (seg.values ?? []) as T[]);
+      await store.set<T[]>(seg.id, segmentCache.get(seg.id) ?? []);
     return dirty.map((s) => s.id);
   }
   const chunkMap = new Map<number, Record<number, T[]>>();
@@ -69,7 +70,7 @@ export async function flushSegmentsToChunks<T>(
       rec = {} as Record<number, T[]>;
       chunkMap.set(cidx, rec);
     }
-    rec[segNum] = (seg.values ?? []) as T[];
+    rec[segNum] = segmentCache.get(seg.id) ?? [];
   }
   const entries = Array.from(chunkMap.entries()).map(([cidx, dirtySegments]) => ({
     cidx,
