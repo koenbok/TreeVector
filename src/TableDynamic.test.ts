@@ -8,9 +8,9 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 8, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }) },
       /* columns */ undefined,
-      { segmentN: 8, chunkN: 0 },
+      { segmentCount: 8, chunkCount: 0 },
     );
 
     await table.insert([
@@ -37,9 +37,9 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 8, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }) },
       undefined,
-      { segmentN: 8, chunkN: 0 },
+      { segmentCount: 8, chunkCount: 0 },
     );
 
     await table.insert([{ id: 2, name: "bob" }]); // only name column created
@@ -61,9 +61,9 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 8, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }) },
       undefined,
-      { segmentN: 8, chunkN: 0 },
+      { segmentCount: 8, chunkCount: 0 },
     );
 
     await expect(
@@ -79,9 +79,9 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentN: 8, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" }) },
+      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }) },
       undefined,
-      { segmentN: 4, chunkN: 0 },
+      { segmentCount: 4, chunkCount: 0 },
     );
     await table.insert([
       { id: 3, name: "c" },

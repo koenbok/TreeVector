@@ -10,21 +10,24 @@ export type BaseSegment<T> = {
     count: number;
 };
 
+type Simplify<T> = { [P in keyof T]: T[P] };
 export type MakeOptional<T, K extends keyof T> =
     Simplify<Omit<T, K> & Partial<Pick<T, K>>>;
 
 export type FenwickBaseMeta<T, S extends BaseSegment<T>> = {
-    segmentN: number;
-    chunkN: number;
+    segmentCount: number;
+    segmentPrefix: string;
+    chunkCount: number;
     chunkPrefix: string;
-    idPrefix: string;
     segments: S[];
 }
 
-type Simplify<T> = { [P in keyof T]: T[P] };
+
+
+
 
 export abstract class FenwickBase<T, S extends BaseSegment<T>> {
-    // protected segments: S[] = [];
+
     protected meta!: FenwickBaseMeta<T, S>;
     protected fenwick: number[] = [];
     protected totalCount = 0;
@@ -35,15 +38,29 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
 
     protected constructor(
         protected readonly store: IStore,
-        meta: MakeOptional<FenwickBaseMeta<T, S>, "segments">,
+        meta: FenwickBaseMeta<T, S>,
     ) {
         this.setMeta(meta);
     }
 
-    setMeta(meta: MakeOptional<FenwickBaseMeta<T, S>, "segments">): void {
-        const mutableMeta = { ...meta };
-        if (!mutableMeta.segments) mutableMeta.segments = [];
-        this.meta = mutableMeta as FenwickBaseMeta<T, S>;
+    setMeta(meta: FenwickBaseMeta<T, S>): void {
+        this.meta = meta;
+        // Initialize caches to enable chunk reuse and avoid stale state
+        if (!this.chunkCache) this.chunkCache = {};
+        // Recompute derived state from provided segments
+        this.totalCount = Array.isArray(this.meta.segments)
+            ? this.meta.segments.reduce((sum, seg) => sum + (seg?.count ?? 0), 0)
+            : 0;
+        this.buildFenwick();
+        // Derive nextId from the numeric suffix of segment ids; fallback to segments.length
+        let maxNum = -1;
+        for (const s of this.meta.segments ?? []) {
+            const id = s?.id ?? "";
+            const idx = id.lastIndexOf("_");
+            const num = Number.parseInt(idx >= 0 ? id.slice(idx + 1) : id, 10);
+            if (Number.isFinite(num)) maxNum = Math.max(maxNum, num);
+        }
+        this.nextId = (maxNum >= 0 ? maxNum + 1 : this.meta.segments?.length ?? 0);
     }
 
     getMeta(): FenwickBaseMeta<T, S> {
@@ -95,7 +112,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
             this.store,
             Array.from(this.dirty.values()),
             this.segmentCache,
-            this.meta.chunkN,
+            this.meta.chunkCount,
             this.meta.chunkPrefix,
         );
         this.dirty.clear();
@@ -108,7 +125,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         const arr = await loadSegmentFromChunks<T>(
             this.store,
             seg.id,
-            this.meta.chunkN,
+            this.meta.chunkCount,
             this.meta.chunkPrefix,
             this.chunkCache,
         );
@@ -183,18 +200,22 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     }
 
     protected rebuildFenwick(): void {
-        const n = this.meta.segments.length;
-        this.fenwick = new Array<number>(n).fill(0);
-        for (let i = 0; i < n; i++) this.fenwick[i] = this.meta.segments[i]?.count ?? 0;
-        for (let i = 0; i < n; i++) {
-            const j = i + ((i + 1) & -(i + 1));
-            if (j <= n - 1)
-                this.fenwick[j] = (this.fenwick[j] ?? 0) + (this.fenwick[i] ?? 0);
-        }
+        this.buildFenwick();
     }
 
     // Local helper to rebuild fenwick without calling rebuildFenwick (for split updates)
     protected recomputeFenwick(): void {
+        this.buildFenwick();
+    }
+
+    protected newId(): string {
+        const id = `${this.meta.segmentPrefix}${this.nextId}`;
+        this.nextId += 1;
+        return id;
+    }
+
+    // Shared implementation for building the fenwick tree from current segments
+    private buildFenwick(): void {
         const n = this.meta.segments.length;
         this.fenwick = new Array<number>(n).fill(0);
         for (let i = 0; i < n; i++) this.fenwick[i] = this.meta.segments[i]?.count ?? 0;
@@ -203,11 +224,5 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
             if (j <= n - 1)
                 this.fenwick[j] = (this.fenwick[j] ?? 0) + (this.fenwick[i] ?? 0);
         }
-    }
-
-    protected newId(): string {
-        const id = `${this.meta.idPrefix}${this.nextId}`;
-        this.nextId += 1;
-        return id;
     }
 }

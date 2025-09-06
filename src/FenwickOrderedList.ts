@@ -9,20 +9,30 @@ function defaultCmp<T>(a: T, b: T): number {
   return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
 }
 
+type FenwickOrderedListMeta<T> = FenwickBaseMeta<T, Segment<T>>;
+
+function getDefaults<T>(meta: Partial<FenwickOrderedListMeta<T>>): FenwickOrderedListMeta<T> {
+  return {
+    segmentCount: 1024,
+    segmentPrefix: "segment_ordered_",
+    chunkCount: 128,
+    chunkPrefix: "chunk_",
+    segments: [],
+    ...meta,
+  };
+}
+
 export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
   private cmp: (a: T, b: T) => number;
 
   constructor(
     store: IStore,
-    meta: MakeOptional<FenwickBaseMeta<T, Segment<T>>, "segments">,
+    meta: Partial<FenwickOrderedListMeta<T>>,
 
     cmp?: (a: T, b: T) => number,
   ) {
-    // Set defaults for missing meta properties
-    const mutableMeta = { ...meta };
-    if (!mutableMeta.chunkPrefix) mutableMeta.chunkPrefix = "ochunk_";
-    if (!mutableMeta.idPrefix) mutableMeta.idPrefix = "oseg_";
-    super(store, mutableMeta);
+
+    super(store, getDefaults<T>(meta));
 
     // Initialize cmp
     this.cmp = cmp || defaultCmp;
@@ -64,7 +74,7 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     this.addFenwick(segIndex, 1);
     this.dirty.add(seg);
 
-    if (seg.count > this.meta.segmentN) this.splitSegment(segIndex);
+    if (seg.count > this.meta.segmentCount) this.splitSegment(segIndex);
     return insertPos;
   }
 

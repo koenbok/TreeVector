@@ -232,7 +232,7 @@ async function benchIndexed(
     for (let i = 0; i < values.length; i++) {
         const idx = mode === "append" ? i : Math.floor(rng() * (i + 1));
         // eslint-disable-next-line no-await-in-loop
-        await column.insert(idx, values[i] as number);
+        await column.insertAt(idx, values[i] as number);
         if ((i + 1) % 100_000 === 0) {
             const dt = performance.now() - t0;
             const ips = (i + 1) / (dt / 1000);
@@ -314,7 +314,7 @@ async function main(): Promise<void> {
         const store = new MemoryStore();
         const ordered = new FenwickOrderedColumn<number>(
             store,
-            { segmentN: MAX_PER_SEGMENT, chunkN: SEGMENTS_PER_CHUNK as number, chunkPrefix: "ochunk_", idPrefix: "oseg_" },
+            { segmentCount: MAX_PER_SEGMENT, chunkCount: SEGMENTS_PER_CHUNK as number, chunkPrefix: "ochunk_" },
         );
         await benchOrdered(ordered, orderedValues, mode, store);
     }
@@ -326,7 +326,7 @@ async function main(): Promise<void> {
         const store = new MemoryStore();
         const indexed = new FenwickColumn<number>(
             store,
-            { segmentN: MAX_PER_SEGMENT, chunkN: SEGMENTS_PER_CHUNK as number, chunkPrefix: "chunk_", idPrefix: "seg_" },
+            { segmentCount: MAX_PER_SEGMENT, chunkCount: SEGMENTS_PER_CHUNK as number, chunkPrefix: "chunk_" },
         );
         await benchIndexed(indexed, indexedValues, mode, store);
     }

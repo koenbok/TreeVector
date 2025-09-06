@@ -42,3 +42,4 @@ ehthumbs.db
 .env
 .env.local
 .env.production
+.bench_before/

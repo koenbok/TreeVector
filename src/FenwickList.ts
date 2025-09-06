@@ -3,13 +3,22 @@ import { FenwickBase, type BaseSegment, type FenwickBaseMeta, type MakeOptional 
 
 type Segment<T> = BaseSegment<T>;
 
+type FenwickListMeta<T> = FenwickBaseMeta<T, Segment<T>>;
+
+function getDefaults<T>(meta: Partial<FenwickListMeta<T>>): FenwickListMeta<T> {
+  return {
+    segmentCount: 1024,
+    segmentPrefix: "segment_",
+    chunkCount: 128,
+    chunkPrefix: "chunk_",
+    segments: [],
+    ...meta,
+  };
+}
+
 export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
-  constructor(store: IStore, meta: MakeOptional<FenwickBaseMeta<T, Segment<T>>, "segments">) {
-    // Set defaults for missing meta properties
-    const mutableMeta = { ...meta };
-    if (!mutableMeta.chunkPrefix) mutableMeta.chunkPrefix = "chunk_";
-    if (!mutableMeta.idPrefix) mutableMeta.idPrefix = "seg_";
-    super(store, mutableMeta);
+  constructor(store: IStore, meta: Partial<FenwickListMeta<T>>) {
+    super(store, getDefaults<T>(meta));
   }
 
   async insertAt(index: number, value: T): Promise<void> {
@@ -34,7 +43,7 @@ export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
       this.totalCount += 1;
       this.addFenwick(segIndex, 1);
       this.dirty.add(seg);
-      if (seg.count > this.meta.segmentN) this.splitSegment(segIndex);
+      if (seg.count > this.meta.segmentCount) this.splitSegment(segIndex);
       return;
     }
 
@@ -47,7 +56,7 @@ export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
     this.totalCount += 1;
 
     // If segment exceeds capacity, perform split which will recompute fenwick
-    if (seg.count > this.meta.segmentN) {
+    if (seg.count > this.meta.segmentCount) {
       this.splitSegment(segIndex);
     } else {
       // Inline Fenwick tree point update: fenwick[idx] += 1 for idx in path

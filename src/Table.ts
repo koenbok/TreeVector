@@ -5,18 +5,18 @@ type Row = Record<string, unknown>;
 
 export class Table<T> {
   private columns: Record<string, IndexedColumnInterface<unknown>>;
-  private readonly defaultSegmentN: number;
-  private readonly defaultChunkN: number;
+  private readonly defaultsegmentCount: number;
+  private readonly defaultchunkCount: number;
 
   constructor(
     private store: IStore,
     private order: { key: string; column: OrderedColumnInterface<T> },
     columns?: Record<string, IndexedColumnInterface<unknown>>,
-    opts?: { segmentN?: number; chunkN?: number },
+    opts?: { segmentCount?: number; chunkCount?: number },
   ) {
     this.columns = columns ?? {};
-    this.defaultSegmentN = opts?.segmentN ?? 8192;
-    this.defaultChunkN = opts?.chunkN ?? 0;
+    this.defaultsegmentCount = opts?.segmentCount ?? 8192;
+    this.defaultchunkCount = opts?.chunkCount ?? 0;
   }
 
   private ensureColumnFor(key: string, sample: unknown): IndexedColumnInterface<unknown> {
@@ -26,7 +26,7 @@ export class Table<T> {
     if (t === "number") {
       const col = new FenwickColumn<number>(
         this.store,
-        { segmentN: this.defaultSegmentN, chunkN: this.defaultChunkN, chunkPrefix: "chunk_", idPrefix: "seg_" },
+        { segmentCount: this.defaultsegmentCount, chunkCount: this.defaultchunkCount },
       );
       this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
       return this.columns[key] as IndexedColumnInterface<unknown>;
@@ -34,7 +34,7 @@ export class Table<T> {
     if (t === "string") {
       const col = new FenwickColumn<string>(
         this.store,
-        { segmentN: this.defaultSegmentN, chunkN: this.defaultChunkN, chunkPrefix: "chunk_", idPrefix: "seg_" },
+        { segmentCount: this.defaultsegmentCount, chunkCount: this.defaultchunkCount },
       );
       this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
       return this.columns[key] as IndexedColumnInterface<unknown>;
@@ -68,7 +68,7 @@ export class Table<T> {
 
         const v = row[rowKey];
         const col = this.ensureColumnFor(rowKey, v);
-        tasks.push(col.insert(index, v as unknown as T));
+        tasks.push(col.insertAt(index, v as unknown as T));
       }
 
       // Only if some pre-existing columns were not present in this row,
@@ -78,7 +78,7 @@ export class Table<T> {
           if (key === this.order.key) continue;
           if (Object.prototype.hasOwnProperty.call(row, key)) continue;
           const col = this.columns[key] as IndexedColumnInterface<unknown>;
-          tasks.push(col.insert(index, undefined as unknown as T));
+          tasks.push(col.insertAt(index, undefined as unknown as T));
         }
       }
 

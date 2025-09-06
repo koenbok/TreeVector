@@ -45,7 +45,7 @@ class CountingFenwickOrderedList<T> extends FenwickOrderedList<T> {
 describe("FenwickOrderedList", () => {
   it("inserts and gets by index in order", async () => {
     const store = new MemoryStore();
-    const list = new FenwickOrderedList<number>(store, { segmentN: 1024, chunkN: 128, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new FenwickOrderedList<number>(store, { segmentCount: 1024, chunkCount: 128 });
     const nums = [5, 1, 3, 2, 4, 6, 0, 7, 9, 8];
     for (const n of nums) {
       await list.insert(n);
@@ -57,7 +57,7 @@ describe("FenwickOrderedList", () => {
 
   it("scan(min,max) returns sorted values within [min,max) bounds", async () => {
     const store = new MemoryStore();
-    const list = new FenwickOrderedList<number>(store, { segmentN: 512, chunkN: 128, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new FenwickOrderedList<number>(store, { segmentCount: 512, chunkCount: 128 });
     const values = [10, 2, 7, 5, 1, 3, 9, 6, 4, 8];
     for (const v of values) await list.insert(v);
     const out = await list.scan(3, 7);
@@ -66,7 +66,7 @@ describe("FenwickOrderedList", () => {
 
   it("handles duplicates and keeps them contiguous", async () => {
     const store = new MemoryStore();
-    const list = new FenwickOrderedList<number>(store, { segmentN: 256, chunkN: 128, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new FenwickOrderedList<number>(store, { segmentCount: 256, chunkCount: 128 });
     const values = [2, 2, 2, 1, 1, 3];
     for (const v of values) await list.insert(v);
     const got = await Promise.all(
@@ -79,7 +79,7 @@ describe("FenwickOrderedList", () => {
 
   it("scan excludes max and handles duplicates with [min,max) semantics", async () => {
     const store = new MemoryStore();
-    const list = new FenwickOrderedList<number>(store, { segmentN: 128, chunkN: 128, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new FenwickOrderedList<number>(store, { segmentCount: 128, chunkCount: 128 });
     for (const v of [1, 2, 2, 3, 4, 5]) await list.insert(v);
     expect(await list.scan(2, 5)).toEqual([2, 2, 3, 4]);
     expect(await list.scan(5, 6)).toEqual([5]);
@@ -88,7 +88,7 @@ describe("FenwickOrderedList", () => {
 
   it("range(min,max) returns values by index slice [min,max)", async () => {
     const store = new MemoryStore();
-    const list = new FenwickOrderedList<number>(store, { segmentN: 128, chunkN: 128, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new FenwickOrderedList<number>(store, { segmentCount: 128, chunkCount: 128 });
     for (const v of [10, 20, 30, 40, 50]) await list.insert(v);
     expect(await list.range(1, 4)).toEqual([20, 30, 40]);
     expect(await list.range(0, 2)).toEqual([10, 20]);
@@ -99,7 +99,7 @@ describe("FenwickOrderedList", () => {
 
   it("getIndex returns lower_bound for values and duplicates", async () => {
     const store = new MemoryStore();
-    const list = new FenwickOrderedList<number>(store, { segmentN: 256, chunkN: 128, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new FenwickOrderedList<number>(store, { segmentCount: 256, chunkCount: 128 });
     const values = [5, 1, 3, 2, 4, 2, 5];
     for (const v of values) await list.insert(v);
     // Sorted: [1,2,2,3,4,5,5]
@@ -115,7 +115,7 @@ describe("FenwickOrderedList", () => {
   it("getIndex scales across multiple segments", async () => {
     const store = new MemoryStore();
     // small maxValues to force many splits into segments
-    const list = new FenwickOrderedList<number>(store, { segmentN: 8, chunkN: 128, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new FenwickOrderedList<number>(store, { segmentCount: 8, chunkCount: 128 });
     const N = 1000;
     for (let i = 1; i <= N; i++) await list.insert(i);
     expect(await list.getIndex(1)).toBe(0);
@@ -127,7 +127,7 @@ describe("FenwickOrderedList", () => {
 
   it("no waterfall: scan loads needed segments in parallel", async () => {
     const store = new TracingStore<number>(5);
-    const list = new TestFenwickOrderedList<number>(store, { segmentN: 4, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new TestFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 0 });
     // populate enough values to create multiple segments
     for (let i = 0; i < 64; i++) await list.insert(i);
     await list.flush();
@@ -141,7 +141,7 @@ describe("FenwickOrderedList", () => {
 
   it("no waterfall: range loads needed segments in parallel", async () => {
     const store = new TracingStore<number>(5);
-    const list = new TestFenwickOrderedList<number>(store, { segmentN: 4, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new TestFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 0 });
     for (let i = 0; i < 64; i++) await list.insert(i);
     await list.flush();
     list.dropValues();
@@ -153,7 +153,7 @@ describe("FenwickOrderedList", () => {
 
   it("no waterfall: insert touches at most one segment load", async () => {
     const store = new TracingStore<number>(5);
-    const list = new TestFenwickOrderedList<number>(store, { segmentN: 4, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new TestFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 0 });
     for (let i = 0; i < 16; i++) await list.insert(i);
     await list.flush();
     list.dropValues();
@@ -167,7 +167,7 @@ describe("FenwickOrderedList", () => {
 
   it("incremental fenwick: avoids full rebuild on split (only initial rebuild)", async () => {
     const store = new MemoryStore();
-    const list = new CountingFenwickOrderedList<number>(store, { segmentN: 4, chunkN: 0, chunkPrefix: "ochunk_", idPrefix: "oseg_" });
+    const list = new CountingFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 0 });
     const N = 128;
     for (let i = 0; i < N; i++) {
       await list.insert(i);
