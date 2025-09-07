@@ -298,7 +298,7 @@ async function main(): Promise<void> {
         const store = new MemoryStore();
         const ordered = new FenwickOrderedColumn<number>(
             store,
-            { segmentCount: MAX_PER_SEGMENT, chunkCount: SEGMENTS_PER_CHUNK as number, chunkPrefix: "ochunk_" },
+            { segmentCount: MAX_PER_SEGMENT, chunkCount: SEGMENTS_PER_CHUNK as number },
         );
         await benchOrdered(ordered, orderedValues, mode, store);
     }
@@ -310,7 +310,7 @@ async function main(): Promise<void> {
         const store = new MemoryStore();
         const indexed = new FenwickColumn<number>(
             store,
-            { segmentCount: MAX_PER_SEGMENT, chunkCount: SEGMENTS_PER_CHUNK as number, chunkPrefix: "chunk_" },
+            { segmentCount: MAX_PER_SEGMENT, chunkCount: SEGMENTS_PER_CHUNK as number },
         );
         await benchIndexed(indexed, indexedValues, mode, store);
     }
