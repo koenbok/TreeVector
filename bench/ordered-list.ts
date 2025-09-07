@@ -59,30 +59,27 @@ function buildValues(count: number, dupRate: number): number[] {
   return arr;
 }
 
-function makeHistogram(
-  values: number[],
-  numBins = 10,
-): { ranges: [number, number][]; counts: number[] } {
+function makeHistogram(values: number[], targetBins = 12): { ranges: [number, number][]; counts: number[] } {
   if (values.length === 0) return { ranges: [], counts: [] };
-  let min = Number.POSITIVE_INFINITY;
-  let max = Number.NEGATIVE_INFINITY;
-  for (const v of values) {
-    if (v < min) min = v;
-    if (v > max) max = v;
+  const sorted = [...values].sort((a, b) => a - b);
+  const n = sorted.length;
+  const bins = Math.min(targetBins, Math.max(1, Math.ceil(Math.log2(n + 1))));
+  const counts = new Array<number>(bins).fill(0);
+  const ranges: [number, number][] = new Array(bins);
+  // Quantile-based bins for more meaningful distribution
+  for (let i = 0; i < bins; i++) {
+    const loIdx = Math.floor((i / bins) * (n - 1));
+    const hiIdx = Math.floor(((i + 1) / bins) * (n - 1));
+    const lo = sorted[loIdx] as number;
+    const hi = sorted[hiIdx] as number;
+    ranges[i] = [lo, hi];
   }
-  if (min === max) return { ranges: [[min, max]], counts: [values.length] };
-  const binSize = (max - min) / numBins;
-  const counts = new Array<number>(numBins).fill(0);
-  for (const v of values) {
-    let bin = Math.floor((v - min) / binSize);
-    if (bin >= numBins) bin = numBins - 1; // guard max edge
-    counts[bin]! += 1;
-  }
-  const ranges: [number, number][] = [];
-  for (let i = 0; i < numBins; i++) {
-    const lo = Math.floor(min + i * binSize);
-    const hi = Math.floor(i === numBins - 1 ? max : min + (i + 1) * binSize);
-    ranges.push([lo, hi]);
+  // Tally counts by range
+  let bin = 0;
+  for (let i = 0; i < n; i++) {
+    const v = sorted[i] as number;
+    while (bin < bins - 1 && v > (ranges[bin]![1] as number)) bin += 1;
+    counts[bin] = ((counts[bin] ?? 0) as number) + 1;
   }
   return { ranges, counts };
 }
@@ -135,20 +132,10 @@ async function main(): Promise<void> {
   const checkMs = performance.now() - checkStart;
   console.log(`Order check: ${ok ? "OK" : "FAIL"} — ${checkMs.toFixed(0)} ms`);
 
-  // Segment distribution (persist segments and fetch sizes)
-  const dirtyKeys = await list.flush();
-  const segSizes: number[] = [];
-  for (const key of dirtyKeys) {
-    // eslint-disable-next-line no-await-in-loop
-    const rec =
-      (await store.get<{ segments?: Record<number, number[]> }>(key)) ?? {};
-    if (rec.segments) {
-      for (const arr of Object.values(rec.segments)) segSizes.push(arr.length);
-    } else {
-      const seg = (await store.get<number[]>(key)) ?? [];
-      segSizes.push(seg.length);
-    }
-  }
+  // Segment distribution (from meta)
+  await list.flush();
+  const meta = list.getMeta();
+  const segSizes: number[] = meta.segments.map((s) => s.count);
   segSizes.sort((a, b) => a - b);
   const segTotal = segSizes.length;
   const segMin = segSizes[0] ?? 0;

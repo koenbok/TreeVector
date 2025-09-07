@@ -127,7 +127,7 @@ describe("FenwickOrderedList", () => {
 
   it("no waterfall: scan loads needed segments in parallel", async () => {
     const store = new TracingStore<number>(5);
-    const list = new TestFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 0 });
+    const list = new TestFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 1 });
     // populate enough values to create multiple segments
     for (let i = 0; i < 64; i++) await list.insert(i);
     await list.flush();
@@ -141,7 +141,7 @@ describe("FenwickOrderedList", () => {
 
   it("no waterfall: range loads needed segments in parallel", async () => {
     const store = new TracingStore<number>(5);
-    const list = new TestFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 0 });
+    const list = new TestFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 1 });
     for (let i = 0; i < 64; i++) await list.insert(i);
     await list.flush();
     list.dropValues();
@@ -167,7 +167,7 @@ describe("FenwickOrderedList", () => {
 
   it("incremental fenwick: avoids full rebuild on split (only initial rebuild)", async () => {
     const store = new MemoryStore();
-    const list = new CountingFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 0 });
+    const list = new CountingFenwickOrderedList<number>(store, { segmentCount: 4, chunkCount: 1 });
     const N = 128;
     for (let i = 0; i < N; i++) {
       await list.insert(i);

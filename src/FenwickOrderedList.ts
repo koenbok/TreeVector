@@ -14,12 +14,11 @@ type FenwickOrderedListMeta<T> = FenwickBaseMeta<T, Segment<T>>;
 function getDefaults<T>(meta: Partial<FenwickOrderedListMeta<T>>): FenwickOrderedListMeta<T> {
   return {
     segmentCount: 1024,
-    segmentPrefix: "segment_ordered_",
     chunkCount: 128,
-    chunkPrefix: "chunk_",
     segments: [],
+    chunks: [],
     ...meta,
-  };
+  } as FenwickOrderedListMeta<T>;
 }
 
 export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
@@ -41,12 +40,12 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
   async insert(value: T): Promise<number> {
     if (this.meta.segments.length === 0) {
       const seg: Segment<T> = {
-        id: this.newId(),
         count: 1,
         min: value,
         max: value,
       };
-      this.segmentCache.set(seg.id, [value]);
+      // ensure segment array is created in chunk cache
+      (await this.getArrayForSegment(seg, true)).push(value);
       this.meta.segments.push(seg);
       this.rebuildFenwick();
       this.totalCount = 1;
@@ -57,8 +56,8 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     // locate segment: first with seg.max >= value
     const segIndex = this.findFirstSegmentByMaxLowerBound(value);
     const seg = this.meta.segments[segIndex] as Segment<T>;
-    await this.ensureLoaded(seg);
-    const arr = this.segmentCache.get(seg.id)!;
+    await this.ensureSegmentLoaded(seg);
+    const arr = this.getOrCreateArraySync(seg, true);
 
     // lower_bound inside segment
     const localIndex = this.lowerBoundInArray(arr, value);
@@ -74,7 +73,7 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     this.addFenwick(segIndex, 1);
     this.dirty.add(seg);
 
-    if (seg.count > this.meta.segmentCount) this.splitSegment(segIndex);
+    if (seg.count > this.meta.segmentCount) await this.splitSegment(segIndex);
     return insertPos;
   }
 
@@ -106,12 +105,12 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     }
     // load candidates in parallel
     await Promise.all(
-      this.meta.segments.slice(i, j).map((s) => this.ensureLoaded(s as Segment<T>)),
+      this.meta.segments.slice(i, j).map((s) => this.ensureSegmentLoaded(s as Segment<T>)),
     );
     // now collect results sequentially
     while (i < j) {
       const s = this.meta.segments[i] as Segment<T>;
-      const arr = this.segmentCache.get(s.id)!;
+      const arr = this.getOrCreateArraySync(s, true);
       // [min, max) semantics: lower_bound(min), lower_bound(max)
       const start = this.lowerBoundInArray(arr, min);
       const end = this.lowerBoundInArray(arr, max);
@@ -127,44 +126,44 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     // first segment with max >= value
     const segIndex = this.findFirstSegmentByMaxLowerBound(value);
     const s = this.meta.segments[segIndex] as Segment<T>;
-    await this.ensureLoaded(s);
-    const arr = this.segmentCache.get(s.id)!;
+    await this.ensureSegmentLoaded(s);
+    const arr = this.getOrCreateArraySync(s, true);
     // lower_bound in arr
     const local = this.lowerBoundInArray(arr, value);
     const before = this.prefixSum(segIndex);
     return before + local;
   }
 
-  protected override async ensureLoaded(segment: Segment<T>): Promise<void> {
-    if (this.segmentCache.has(segment.id)) return;
-    await super.ensureLoaded(segment);
-    const arr = this.segmentCache.get(segment.id)!;
+  protected override async ensureSegmentLoaded(segment: Segment<T>): Promise<void> {
+    await super.ensureSegmentLoaded(segment);
+    const arr = this.getOrCreateArraySync(segment, true);
     if (arr.length > 0) {
       segment.min = arr[0] as T;
       segment.max = arr[arr.length - 1] as T;
     }
   }
 
-  protected override splitSegment(index: number): void {
+  protected override async splitSegment(index: number): Promise<void> {
     const segment = this.meta.segments[index] as Segment<T>;
-    const arr = this.segmentCache.get(segment.id)!;
+    const arr = this.getOrCreateArraySync(segment, true);
     const mid = arr.length >>> 1;
     const right = arr.splice(mid);
     const left = arr; // reuse original array for left half
     if (left.length === 0 || right.length === 0) return;
 
-    this.segmentCache.set(segment.id, left);
     segment.count = left.length;
     segment.min = left[0] as T;
     segment.max = left[left.length - 1] as T;
     const newSeg: Segment<T> = {
-      id: this.newId(),
       count: right.length,
       min: right[0] as T,
       max: right[right.length - 1] as T,
     };
-    this.segmentCache.set(newSeg.id, right);
     this.meta.segments.splice(index + 1, 0, newSeg);
+    // Allocate new segment slot and set right values
+    const targetArr = this.getOrCreateArraySync(newSeg, true);
+    targetArr.length = 0;
+    targetArr.push(...right);
     this.recomputeFenwick();
     this.dirty.add(segment);
     this.dirty.add(newSeg);

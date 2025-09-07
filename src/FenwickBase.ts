@@ -1,12 +1,6 @@
 import type { IStore } from "./Store";
-import {
-    flushSegmentsToChunks,
-    loadSegmentFromChunks,
-    type ChunkCache,
-} from "./Chunks";
 
 export type BaseSegment<T> = {
-    id: string;
     count: number;
 };
 
@@ -15,26 +9,30 @@ export type MakeOptional<T, K extends keyof T> =
     Simplify<Omit<T, K> & Partial<Pick<T, K>>>;
 
 export type FenwickBaseMeta<T, S extends BaseSegment<T>> = {
+    // Maximum number of values per in-memory segment array
     segmentCount: number;
-    segmentPrefix: string;
-    chunkCount: number;
-    chunkPrefix: string;
+    // Ordered list of segment descriptors (no ids; indexed by position)
     segments: S[];
+    // Number of segments per chunk (<=0 means 1 segment per chunk)
+    chunkCount: number;
+    // Copy-on-write chunk keys by chunk index
+    chunks: string[];
 }
-
-
-
-
 
 export abstract class FenwickBase<T, S extends BaseSegment<T>> {
 
     protected meta!: FenwickBaseMeta<T, S>;
     protected fenwick: number[] = [];
     protected totalCount = 0;
-    protected nextId = 0;
     protected dirty = new Set<S>();
-    protected chunkCache: ChunkCache<T> | undefined;
-    protected segmentCache = new Map<string, T[]>();
+    // Single cache: chunks by chunk index → T[][] (for persisted loads)
+    protected chunkCache = new Map<number, T[][]>();
+    // In-memory authoritative arrays per segment (simple and fast)
+    protected segmentArrays = new Map<S, T[]>();
+    // O(1) lookup for segment index by object identity
+    protected segmentIndexByRef = new Map<S, number>();
+    // Back-compat shim for tests that call this.segmentCache.clear()
+    public segmentCache: { clear: () => void } = { clear: () => { this.segmentArrays.clear(); this.chunkCache.clear(); } };
 
     protected constructor(
         protected readonly store: IStore,
@@ -45,22 +43,13 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
 
     setMeta(meta: FenwickBaseMeta<T, S>): void {
         this.meta = meta;
-        // Initialize caches to enable chunk reuse and avoid stale state
-        if (!this.chunkCache) this.chunkCache = {};
+        if (!Array.isArray(this.meta.chunks)) this.meta.chunks = [];
         // Recompute derived state from provided segments
         this.totalCount = Array.isArray(this.meta.segments)
             ? this.meta.segments.reduce((sum, seg) => sum + (seg?.count ?? 0), 0)
             : 0;
         this.buildFenwick();
-        // Derive nextId from the numeric suffix of segment ids; fallback to segments.length
-        let maxNum = -1;
-        for (const s of this.meta.segments ?? []) {
-            const id = s?.id ?? "";
-            const idx = id.lastIndexOf("_");
-            const num = Number.parseInt(idx >= 0 ? id.slice(idx + 1) : id, 10);
-            if (Number.isFinite(num)) maxNum = Math.max(maxNum, num);
-        }
-        this.nextId = (maxNum >= 0 ? maxNum + 1 : this.meta.segments?.length ?? 0);
+        this.rebuildSegmentIndexMap();
     }
 
     getMeta(): FenwickBaseMeta<T, S> {
@@ -73,8 +62,8 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         if (index < 0 || index >= this.totalCount) return undefined;
         const { segIndex, localIndex } = this.findByIndex(index);
         const seg = this.meta.segments[segIndex] as S;
-        await this.ensureLoaded(seg);
-        const arr = this.segmentCache.get(seg.id)!;
+        await this.ensureSegmentLoaded(seg);
+        const arr = this.getOrCreateArraySync(seg, true);
         return arr[localIndex] as T;
     }
 
@@ -93,11 +82,11 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         await Promise.all(
             this.meta.segments
                 .slice(segIndex, endSegIndex + 1)
-                .map((s) => this.ensureLoaded(s as S)),
+                .map((s) => this.ensureSegmentLoaded(s as S)),
         );
         while (remaining > 0 && segIndex < this.meta.segments.length) {
             const seg = this.meta.segments[segIndex] as S;
-            const arr = this.segmentCache.get(seg.id)!;
+            const arr = this.getOrCreateArraySync(seg, true);
             const take = Math.min(remaining, Math.max(0, arr.length - localIndex));
             if (take > 0) out.push(...arr.slice(localIndex, localIndex + take));
             remaining -= take;
@@ -108,48 +97,74 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     }
 
     async flush(): Promise<string[]> {
-        const keys = await flushSegmentsToChunks<T>(
-            this.store,
-            Array.from(this.dirty.values()),
-            this.segmentCache,
-            this.meta.chunkCount,
-            this.meta.chunkPrefix,
+        if (this.dirty.size === 0) return [];
+        const changedByChunk = new Map<number, Array<{ seg: S; segIndex: number }>>();
+        const chunkSize = this.effectiveChunkSize();
+        for (const seg of this.dirty) {
+            const idx = this.getSegmentIndex(seg);
+            if (idx < 0) continue;
+            const cidx = Math.floor(idx / chunkSize);
+            let arr = changedByChunk.get(cidx);
+            if (!arr) {
+                arr = [];
+                changedByChunk.set(cidx, arr);
+            }
+            arr.push({ seg, segIndex: idx });
+        }
+
+        const writtenKeys: string[] = [];
+        await Promise.all(
+            Array.from(changedByChunk.entries()).map(async ([cidx, items]) => {
+                const chunk = await this.getOrLoadChunk(cidx);
+                const newChunk: T[][] = new Array<T[]>(chunkSize);
+                for (let i = 0; i < chunkSize; i++) newChunk[i] = (chunk[i] ?? []) as T[];
+                // Override dirty segments with current in-memory arrays
+                for (const { seg, segIndex } of items) {
+                    const pos = segIndex % chunkSize;
+                    const arr = this.getOrCreateArraySync(seg, true);
+                    newChunk[pos] = (arr.slice() as unknown) as T[];
+                }
+                const newKey = this.generateChunkKey(cidx);
+                await this.store.set<T[][]>(newKey, newChunk);
+                this.meta.chunks[cidx] = newKey;
+                // Update cache to reflect the new persisted chunk
+                this.chunkCache.set(cidx, newChunk);
+                writtenKeys.push(newKey);
+            }),
         );
+
         this.dirty.clear();
-        return keys;
+        return writtenKeys;
     }
+
+
 
     // ---- internals shared ----
-    protected async ensureLoaded(seg: S): Promise<void> {
-        if (this.segmentCache.has(seg.id)) return;
-        const arr = await loadSegmentFromChunks<T>(
-            this.store,
-            seg.id,
-            this.meta.chunkCount,
-            this.meta.chunkPrefix,
-            this.chunkCache,
-        );
-        this.segmentCache.set(seg.id, arr);
-        seg.count = arr.length;
+    protected async ensureSegmentLoaded(segment: S): Promise<void> {
+        const idx = this.getSegmentIndex(segment);
+        if (idx < 0) {
+            segment.count = 0;
+            return;
+        }
+        const arr = await this.getOrCreateArrayForSegment(segment, true);
+        segment.count = arr.length;
     }
 
-    protected splitSegment(index: number): void {
+    protected async splitSegment(index: number): Promise<void> {
         const seg = this.meta.segments[index] as S;
-        const arr = this.segmentCache.get(seg.id)!;
+        const arr = this.getOrCreateArraySync(seg, true);
         const mid = arr.length >>> 1;
         // Avoid double-copy: mutate original array to keep left half, splice to obtain right
         const right = arr.splice(mid);
         const left = arr; // arr now holds the left half
         if (left.length === 0 || right.length === 0) return;
 
-        this.segmentCache.set(seg.id, left);
         seg.count = left.length;
-        const newSeg = {
-            id: this.newId(),
-            count: right.length,
-        } as S;
-        this.segmentCache.set(newSeg.id, right);
+        const newSeg = { count: right.length } as S;
+        // Place right half into the next segment slot
         this.meta.segments.splice(index + 1, 0, newSeg);
+        // Ensure storage for new segment in memory
+        void this.getOrCreateArraySync(newSeg, true, right);
         // Recompute fenwick to reflect the inserted segment without invoking rebuildFenwick
         this.recomputeFenwick();
         this.dirty.add(seg);
@@ -201,17 +216,95 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
 
     protected rebuildFenwick(): void {
         this.buildFenwick();
+        this.rebuildSegmentIndexMap();
     }
 
     // Local helper to rebuild fenwick without calling rebuildFenwick (for split updates)
     protected recomputeFenwick(): void {
         this.buildFenwick();
+        this.rebuildSegmentIndexMap();
     }
 
-    protected newId(): string {
-        const id = `${this.meta.segmentPrefix}${this.nextId}`;
-        this.nextId += 1;
-        return id;
+    // ---- chunk helpers ----
+    private effectiveChunkSize(): number {
+        return this.meta.chunkCount > 0 ? this.meta.chunkCount : 1;
+    }
+
+    private getSegmentIndex(segment: S): number {
+        const idx = this.segmentIndexByRef.get(segment);
+        if (idx !== undefined) return idx as number;
+        // Fallback (should be rare)
+        const found = this.meta.segments.indexOf(segment);
+        if (found >= 0) this.segmentIndexByRef.set(segment, found);
+        return found;
+    }
+
+    protected async getArrayForSegment(segment: S, create = false): Promise<T[]> {
+        const existing = this.segmentArrays.get(segment);
+        if (existing) return existing as T[];
+        if (create) {
+            const arr = [] as T[];
+            this.segmentArrays.set(segment, arr);
+            return arr;
+        }
+        return this.getOrCreateArrayForSegment(segment, false);
+    }
+
+    protected getOrCreateArraySync(segment: S, create = false, preset?: T[]): T[] {
+        const existing = this.segmentArrays.get(segment);
+        if (existing) return existing as T[];
+        if (create) {
+            const arr = (preset ?? []) as T[];
+            this.segmentArrays.set(segment, arr);
+            return arr;
+        }
+        // If not in memory, create empty array (caller may load asynchronously)
+        const arr = (preset ?? []) as T[];
+        this.segmentArrays.set(segment, arr);
+        return arr;
+    }
+
+    private async getOrCreateArrayForSegment(segment: S, create = false): Promise<T[]> {
+        const current = this.segmentArrays.get(segment);
+        if (current) return current as T[];
+        const idx = this.getSegmentIndex(segment);
+        const chunkSize = this.effectiveChunkSize();
+        const cidx = Math.floor(idx / chunkSize);
+        const chunk = await this.getOrLoadChunk(cidx);
+        const pos = idx % chunkSize;
+        const arr = (chunk[pos] ?? []) as T[];
+        // Store a working copy so mutations don't alias the chunk cache
+        const copy = (arr.slice() as unknown) as T[];
+        if (create || copy.length > 0) this.segmentArrays.set(segment, copy);
+        return copy;
+    }
+
+    private async getOrLoadChunk(chunkIndex: number): Promise<T[][]> {
+        const cached = this.chunkCache.get(chunkIndex);
+        if (cached) return cached as T[][];
+        const chunkSize = this.effectiveChunkSize();
+        const key = this.meta.chunks[chunkIndex];
+        let chunk = (key ? await this.store.get<T[][]>(key) : undefined) ?? [];
+        if (!Array.isArray(chunk)) chunk = [];
+        if (chunk.length < chunkSize) {
+            const augmented = new Array<T[]>(chunkSize);
+            for (let i = 0; i < chunkSize; i++) augmented[i] = (chunk[i] ?? []) as T[];
+            chunk = augmented;
+        }
+        this.chunkCache.set(chunkIndex, chunk as T[][]);
+        return chunk as T[][];
+    }
+
+    private generateChunkKey(chunkIndex: number): string {
+        const suffix = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        return `chunk_${chunkIndex}_${suffix}`;
+    }
+
+    private rebuildSegmentIndexMap(): void {
+        this.segmentIndexByRef.clear();
+        for (let i = 0; i < this.meta.segments.length; i++) {
+            this.segmentIndexByRef.set(this.meta.segments[i] as S, i);
+        }
     }
 
     // Shared implementation for building the fenwick tree from current segments
