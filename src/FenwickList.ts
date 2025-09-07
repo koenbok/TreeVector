@@ -1,5 +1,5 @@
 import type { IStore } from "./Store";
-import { FenwickBase, type BaseSegment, type FenwickBaseMeta, type MakeOptional } from "./FenwickBase";
+import { FenwickBase, type BaseSegment, type FenwickBaseMeta } from "./FenwickBase";
 
 type Segment<T> = BaseSegment<T>;
 
@@ -24,11 +24,7 @@ export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
     const clamped = Math.max(0, Math.min(index, this.totalCount));
     if (this.meta.segments.length === 0) {
       const seg: Segment<T> = { count: 1 };
-      this.getOrCreateArraySync(seg, true).push(value);
-      this.meta.segments.push(seg);
-      this.rebuildFenwick();
-      this.totalCount = 1;
-      this.dirty.add(seg);
+      this.createInitialSegment(seg, value);
       return;
     }
 

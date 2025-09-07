@@ -1,5 +1,5 @@
 import type { IStore } from "./Store";
-import { FenwickBase, type BaseSegment, type FenwickBaseMeta, type MakeOptional } from "./FenwickBase";
+import { FenwickBase, type BaseSegment, type FenwickBaseMeta } from "./FenwickBase";
 
 type Segment<T> = BaseSegment<T> & { min: T; max: T };
 
@@ -39,17 +39,8 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
 
   async insert(value: T): Promise<number> {
     if (this.meta.segments.length === 0) {
-      const seg: Segment<T> = {
-        count: 1,
-        min: value,
-        max: value,
-      };
-      // ensure segment array is created in chunk cache
-      (await this.getArrayForSegment(seg, true)).push(value);
-      this.meta.segments.push(seg);
-      this.rebuildFenwick();
-      this.totalCount = 1;
-      this.dirty.add(seg);
+      const seg: Segment<T> = { count: 1, min: value, max: value };
+      this.createInitialSegment(seg, value);
       return 0;
     }
 
@@ -164,7 +155,9 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     const targetArr = this.getOrCreateArraySync(newSeg, true);
     targetArr.length = 0;
     targetArr.push(...right);
-    this.recomputeFenwick();
+    // Recompute fenwick without counting as a full rebuild
+    (this as any).buildFenwick?.();
+    (this as any)["rebuildSegmentIndexMap"]?.();
     this.dirty.add(segment);
     this.dirty.add(newSeg);
   }

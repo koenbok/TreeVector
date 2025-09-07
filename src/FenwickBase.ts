@@ -4,9 +4,7 @@ export type BaseSegment<T> = {
     count: number;
 };
 
-type Simplify<T> = { [P in keyof T]: T[P] };
-export type MakeOptional<T, K extends keyof T> =
-    Simplify<Omit<T, K> & Partial<Pick<T, K>>>;
+// Removed unused utility types to reduce clutter
 
 export type FenwickBaseMeta<T, S extends BaseSegment<T>> = {
     // Maximum number of values per in-memory segment array
@@ -165,8 +163,9 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         this.meta.segments.splice(index + 1, 0, newSeg);
         // Ensure storage for new segment in memory
         void this.getOrCreateArraySync(newSeg, true, right);
-        // Recompute fenwick to reflect the inserted segment without invoking rebuildFenwick
-        this.recomputeFenwick();
+        // Recompute fenwick without counting as a full rebuild
+        this.buildFenwick();
+        this.rebuildSegmentIndexMap();
         this.dirty.add(seg);
         this.dirty.add(newSeg);
     }
@@ -219,10 +218,15 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         this.rebuildSegmentIndexMap();
     }
 
-    // Local helper to rebuild fenwick without calling rebuildFenwick (for split updates)
-    protected recomputeFenwick(): void {
-        this.buildFenwick();
-        this.rebuildSegmentIndexMap();
+    // Centralized helper to create the very first segment with an initial value
+    protected createInitialSegment(segment: S, initialValue: T): void {
+        const arr = this.getOrCreateArraySync(segment, true);
+        arr.push(initialValue);
+        segment.count = 1;
+        this.meta.segments.push(segment);
+        this.rebuildFenwick();
+        this.totalCount = 1;
+        this.dirty.add(segment);
     }
 
     // ---- chunk helpers ----
@@ -237,17 +241,6 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
         const found = this.meta.segments.indexOf(segment);
         if (found >= 0) this.segmentIndexByRef.set(segment, found);
         return found;
-    }
-
-    protected async getArrayForSegment(segment: S, create = false): Promise<T[]> {
-        const existing = this.segmentArrays.get(segment);
-        if (existing) return existing as T[];
-        if (create) {
-            const arr = [] as T[];
-            this.segmentArrays.set(segment, arr);
-            return arr;
-        }
-        return this.getOrCreateArrayForSegment(segment, false);
     }
 
     protected getOrCreateArraySync(segment: S, create = false, preset?: T[]): T[] {
