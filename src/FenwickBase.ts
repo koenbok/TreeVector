@@ -1,7 +1,7 @@
 import type { IStore } from "./Store";
 
 export type BaseSegment<T> = {
-    count: number;
+  count: number;
 };
 
 // Removed unused utility types to reduce clutter
@@ -143,6 +143,22 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
   }
 
   // ---- internals shared ----
+
+  /**
+   * Hook for subclasses to update metadata on an existing segment after modification.
+   * Base implementation is a no-op.
+   */
+  protected updateSegmentMetadata(segment: S, data: T[]): void {
+    // no-op by default
+  }
+
+  /**
+   * Hook for subclasses to create a new segment object with specific metadata.
+   * Base implementation only sets count.
+   */
+  protected createNewSegmentObject(count: number, data: T[]): S {
+    return { count } as S;
+  }
   protected async ensureSegmentLoaded(segment: S): Promise<void> {
     const idx = this.getSegmentIndex(segment);
     if (idx < 0) {
@@ -162,15 +178,22 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     const left = arr; // arr now holds the left half
     if (left.length === 0 || right.length === 0) return;
 
+    // 1) Update existing segment count and delegate metadata to hook
     seg.count = left.length;
-    const newSeg = { count: right.length } as S;
-    // Place right half into the next segment slot
+    this.updateSegmentMetadata(seg, left);
+
+    // 2) Create new segment via factory hook
+    const newSeg = this.createNewSegmentObject(right.length, right);
+
+    // 3) Place right half into the next segment slot and seed its array
     this.meta.segments.splice(index + 1, 0, newSeg);
-    // Ensure storage for new segment in memory
     void this.getOrCreateArraySync(newSeg, true, right);
-    // Recompute fenwick without counting as a full rebuild
+
+    // 4) Recompute fenwick and segment index map
     this.buildFenwick();
     this.rebuildSegmentIndexMap();
+
+    // 5) Mark segments as dirty for persistence
     this.dirty.add(seg);
     this.dirty.add(newSeg);
   }

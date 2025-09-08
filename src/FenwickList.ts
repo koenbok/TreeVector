@@ -41,9 +41,9 @@ export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
       arr.push(value);
       seg.count += 1;
       this.totalCount += 1;
-      this.addFenwick(segIndex, 1);
       this.dirty.add(seg);
       if (seg.count > this.meta.segmentCount) await this.splitSegment(segIndex);
+      else this.addFenwick(segIndex, 1);
       return;
     }
 
@@ -59,10 +59,7 @@ export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
     if (seg.count > this.meta.segmentCount) {
       await this.splitSegment(segIndex);
     } else {
-      // Inline Fenwick tree point update: fenwick[idx] += 1 for idx in path
-      for (let i = segIndex + 1; i <= this.fenwick.length; i += i & -i) {
-        this.fenwick[i - 1] = (this.fenwick[i - 1] as number) + 1;
-      }
+      this.addFenwick(segIndex, 1);
     }
 
     this.dirty.add(seg);

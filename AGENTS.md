@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+KEEP YOUR ANSWERS SHORT AND TO THE POINT
+
 ## Project Structure & Module Organization
 - `src/`: TypeScript source and colocated tests (`*.test.ts`). Core modules: `FenwickBase.ts`, `FenwickList.ts`, `FenwickOrderedList.ts`, `Column.ts`, `Table.ts`, `Chunks.ts`, `ChunkingStore.ts`, `Store.ts`.
 - `bench/`: Runnable benchmarks (e.g., `bench/columns.ts`, `bench/ordered-list.ts`, `bench/table.ts`).
@@ -38,4 +40,3 @@
 - Fenwick structures (`FenwickBase`, `FenwickList`, `FenwickOrderedList`) back columns and tables.
 - Storage abstractions (`Store`, `ChunkingStore`, `Chunks`) handle segment/chunk IO and caching.
 - Tables/Columns compose the primitives for indexed and ordered access.
-

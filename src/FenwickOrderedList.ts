@@ -66,10 +66,13 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     // Conditionally update segment metadata only when necessary
     if (this.cmp(value, seg.min) < 0) seg.min = value;
     else if (this.cmp(value, seg.max) > 0) seg.max = value;
-    this.addFenwick(segIndex, 1);
     this.dirty.add(seg);
 
-    if (seg.count > this.meta.segmentCount) await this.splitSegment(segIndex);
+    if (seg.count > this.meta.segmentCount) {
+      await this.splitSegment(segIndex);
+    } else {
+      this.addFenwick(segIndex, 1);
+    }
     return insertPos;
   }
 
@@ -143,32 +146,25 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     }
   }
 
-  protected override async splitSegment(index: number): Promise<void> {
-    const segment = this.meta.segments[index] as Segment<T>;
-    const arr = this.getOrCreateArraySync(segment, true);
-    const mid = arr.length >>> 1;
-    const right = arr.splice(mid);
-    const left = arr; // reuse original array for left half
-    if (left.length === 0 || right.length === 0) return;
+  protected override updateSegmentMetadata(
+    segment: Segment<T>,
+    data: T[],
+  ): void {
+    if (data.length > 0) {
+      segment.min = data[0] as T;
+      segment.max = data[data.length - 1] as T;
+    }
+  }
 
-    segment.count = left.length;
-    segment.min = left[0] as T;
-    segment.max = left[left.length - 1] as T;
-    const newSeg: Segment<T> = {
-      count: right.length,
-      min: right[0] as T,
-      max: right[right.length - 1] as T,
+  protected override createNewSegmentObject(
+    count: number,
+    data: T[],
+  ): Segment<T> {
+    return {
+      count,
+      min: data[0] as T,
+      max: data[data.length - 1] as T,
     };
-    this.meta.segments.splice(index + 1, 0, newSeg);
-    // Allocate new segment slot and set right values
-    const targetArr = this.getOrCreateArraySync(newSeg, true);
-    targetArr.length = 0;
-    targetArr.push(...right);
-    // Recompute fenwick without counting as a full rebuild
-    (this as any).buildFenwick?.();
-    (this as any)["rebuildSegmentIndexMap"]?.();
-    this.dirty.add(segment);
-    this.dirty.add(newSeg);
   }
 
   private findFirstSegmentByMaxLowerBound(value: T): number {

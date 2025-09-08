@@ -58,32 +58,23 @@ export class Table<T> {
       const index = await this.order.column.insert(value as T);
 
       // Insert non-order columns in parallel for this row.
-      // Columns are created on-demand based on the value type (number|string).
+      // 1) Insert values for keys present in this row (creating columns as needed)
+      // 2) Pad any pre-existing columns that are missing in this row with undefined
       const tasks: Array<Promise<void>> = [];
-      // Snapshot existing columns before processing this row to avoid
-      // including columns introduced by this row in the padding step.
-      const preExistingKeys = Object.keys(this.columns);
-      let missingPreExistingCount = preExistingKeys.length;
+      const rowKeys = new Set(Object.keys(row));
 
-      for (const rowKey in row) {
-        if (!Object.prototype.hasOwnProperty.call(row, rowKey)) continue;
+      // 1) Handle keys present in this row (except the order key)
+      for (const rowKey of rowKeys) {
         if (rowKey === this.order.key) continue;
-
-        if (Object.prototype.hasOwnProperty.call(this.columns, rowKey)) {
-          missingPreExistingCount -= 1;
-        }
-
         const v = row[rowKey];
         const col = this.ensureColumnFor(rowKey, v);
         tasks.push(col.insertAt(index, v as unknown as T));
       }
 
-      // Only if some pre-existing columns were not present in this row,
-      // pad them with undefined to keep alignment.
-      if (missingPreExistingCount > 0) {
-        for (const key of preExistingKeys) {
-          if (key === this.order.key) continue;
-          if (Object.prototype.hasOwnProperty.call(row, key)) continue;
+      // 2) Pad missing pre-existing columns
+      for (const key in this.columns) {
+        if (key === this.order.key) continue;
+        if (!rowKeys.has(key)) {
           const col = this.columns[key] as IndexedColumnInterface<unknown>;
           tasks.push(col.insertAt(index, undefined as unknown as T));
         }
