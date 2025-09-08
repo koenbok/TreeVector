@@ -28,13 +28,10 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
   protected segmentArrays = new Map<S, T[]>();
   // O(1) lookup for segment index by object identity
   protected segmentIndexByRef = new Map<S, number>();
-  // Back-compat shim for tests that call this.segmentCache.clear()
-  public segmentCache: { clear: () => void } = {
-    clear: () => {
-      this.segmentArrays.clear();
-      this.chunkCache.clear();
-    },
-  };
+  public clearCaches(): void {
+    this.segmentArrays.clear();
+    this.chunkCache.clear();
+  }
 
   protected constructor(
     protected readonly store: IStore,
@@ -241,7 +238,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     }
   }
 
-  protected rebuildFenwick(): void {
+  protected rebuildIndices(): void {
     this.buildFenwick();
     this.rebuildSegmentIndexMap();
   }
@@ -252,7 +249,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     arr.push(initialValue);
     segment.count = 1;
     this.meta.segments.push(segment);
-    this.rebuildFenwick();
+    this.rebuildIndices();
     this.totalCount = 1;
     this.dirty.add(segment);
   }

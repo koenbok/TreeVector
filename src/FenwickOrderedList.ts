@@ -179,23 +179,17 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     return Math.min(lo, this.meta.segments.length - 1);
   }
 
-  private boundInArray(arr: T[], value: T, upper: boolean): number {
+  private lowerBoundInArray(arr: T[], value: T): number {
     let lo = 0;
     let hi = arr.length;
     while (lo < hi) {
       const mid = (lo + hi) >>> 1;
-      const cmpRes = this.cmp(arr[mid] as T, value);
-      if (upper ? cmpRes <= 0 : cmpRes < 0) lo = mid + 1;
-      else hi = mid;
+      if (this.cmp(arr[mid] as T, value) < 0) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
     }
     return lo;
-  }
-
-  private lowerBoundInArray(arr: T[], value: T): number {
-    return this.boundInArray(arr, value, false);
-  }
-
-  private upperBoundInArray(arr: T[], value: T): number {
-    return this.boundInArray(arr, value, true);
   }
 }
