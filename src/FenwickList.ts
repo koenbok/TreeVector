@@ -1,5 +1,9 @@
 import type { IStore } from "./Store";
-import { FenwickBase, type BaseSegment, type FenwickBaseMeta } from "./FenwickBase";
+import {
+  FenwickBase,
+  type BaseSegment,
+  type FenwickBaseMeta,
+} from "./FenwickBase";
 
 type Segment<T> = BaseSegment<T>;
 
@@ -57,7 +61,7 @@ export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
     } else {
       // Inline Fenwick tree point update: fenwick[idx] += 1 for idx in path
       for (let i = segIndex + 1; i <= this.fenwick.length; i += i & -i) {
-        this.fenwick[i - 1]! += 1;
+        this.fenwick[i - 1] = (this.fenwick[i - 1] as number) + 1;
       }
     }
 

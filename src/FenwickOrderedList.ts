@@ -1,5 +1,9 @@
 import type { IStore } from "./Store";
-import { FenwickBase, type BaseSegment, type FenwickBaseMeta } from "./FenwickBase";
+import {
+  FenwickBase,
+  type BaseSegment,
+  type FenwickBaseMeta,
+} from "./FenwickBase";
 
 type Segment<T> = BaseSegment<T> & { min: T; max: T };
 
@@ -11,7 +15,9 @@ function defaultCmp<T>(a: T, b: T): number {
 
 type FenwickOrderedListMeta<T> = FenwickBaseMeta<T, Segment<T>>;
 
-function getDefaults<T>(meta: Partial<FenwickOrderedListMeta<T>>): FenwickOrderedListMeta<T> {
+function getDefaults<T>(
+  meta: Partial<FenwickOrderedListMeta<T>>,
+): FenwickOrderedListMeta<T> {
   return {
     segmentCount: 1024,
     chunkCount: 128,
@@ -30,7 +36,6 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
 
     cmp?: (a: T, b: T) => number,
   ) {
-
     super(store, getDefaults<T>(meta));
 
     // Initialize cmp
@@ -96,7 +101,9 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     }
     // load candidates in parallel
     await Promise.all(
-      this.meta.segments.slice(i, j).map((s) => this.ensureSegmentLoaded(s as Segment<T>)),
+      this.meta.segments
+        .slice(i, j)
+        .map((s) => this.ensureSegmentLoaded(s as Segment<T>)),
     );
     // now collect results sequentially
     while (i < j) {
@@ -125,7 +132,9 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     return before + local;
   }
 
-  protected override async ensureSegmentLoaded(segment: Segment<T>): Promise<void> {
+  protected override async ensureSegmentLoaded(
+    segment: Segment<T>,
+  ): Promise<void> {
     await super.ensureSegmentLoaded(segment);
     const arr = this.getOrCreateArraySync(segment, true);
     if (arr.length > 0) {

@@ -1,4 +1,8 @@
-import { FenwickColumn, type IndexedColumnInterface, type OrderedColumnInterface } from "./Column";
+import {
+  FenwickColumn,
+  type IndexedColumnInterface,
+  type OrderedColumnInterface,
+} from "./Column";
 import type { IStore } from "./Store";
 
 type Row = Record<string, unknown>;
@@ -19,23 +23,26 @@ export class Table<T> {
     this.defaultchunkCount = opts?.chunkCount ?? 0;
   }
 
-  private ensureColumnFor(key: string, sample: unknown): IndexedColumnInterface<unknown> {
+  private ensureColumnFor(
+    key: string,
+    sample: unknown,
+  ): IndexedColumnInterface<unknown> {
     const existing = this.columns[key];
     if (existing) return existing;
     const t = typeof sample;
     if (t === "number") {
-      const col = new FenwickColumn<number>(
-        this.store,
-        { segmentCount: this.defaultsegmentCount, chunkCount: this.defaultchunkCount },
-      );
+      const col = new FenwickColumn<number>(this.store, {
+        segmentCount: this.defaultsegmentCount,
+        chunkCount: this.defaultchunkCount,
+      });
       this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
       return this.columns[key] as IndexedColumnInterface<unknown>;
     }
     if (t === "string") {
-      const col = new FenwickColumn<string>(
-        this.store,
-        { segmentCount: this.defaultsegmentCount, chunkCount: this.defaultchunkCount },
-      );
+      const col = new FenwickColumn<string>(this.store, {
+        segmentCount: this.defaultsegmentCount,
+        chunkCount: this.defaultchunkCount,
+      });
       this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
       return this.columns[key] as IndexedColumnInterface<unknown>;
     }
