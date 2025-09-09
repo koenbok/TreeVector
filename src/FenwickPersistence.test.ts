@@ -103,7 +103,7 @@ describe("Persistence and CoW logic", () => {
     // Clear caches to force reload from store
     list.clearCaches();
     const vReloaded = await list.get(k);
-    expect(vReloaded).toBe(v1);
+    expect(vReloaded).toBe(v1 as number);
   });
 
   it("Segment split after flush persists and reloads correctly", async () => {
