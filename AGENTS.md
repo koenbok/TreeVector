@@ -1,42 +1,66 @@
-# Repository Guidelines
+# AGENTS: How to Work on This Repo
 
-KEEP YOUR ANSWERS SHORT AND TO THE POINT
+Keep answers short and to the point.
 
-## Project Structure & Module Organization
-- `src/`: TypeScript source and colocated tests (`*.test.ts`). Core modules: `FenwickBase.ts`, `FenwickList.ts`, `FenwickOrderedList.ts`, `Column.ts`, `Table.ts`, `Chunks.ts`, `ChunkingStore.ts`, `Store.ts`.
-- `bench/`: Runnable benchmarks (e.g., `bench/columns.ts`, `bench/ordered-list.ts`, `bench/table.ts`).
-- No separate build output; Bun runs TS directly.
+## Quick Commands
+- Install: `bun install`
+- Test all: `bun test`
+- Test one: `bun test src/Column.test.ts`
+- Bench (examples):
+  - `bun run bench/ordered-list.ts 1000000 8192`
+  - `bun run bench/columns.ts 300000 8192 16 0.05`
 
-## Build, Test, and Development Commands
-- Install deps: `bun install`
-- Run all tests: `bun test`
-- Run a single test: `bun test src/Column.test.ts`
-- Run benchmarks (examples):
-  - Ordered list: `bun run bench/ordered-list.ts 1000000 8192`
-  - Columns sweep: `bun run bench/columns.ts 300000 8192 16 0.05`
+## Code & Project Conventions
+- Language: TypeScript (ESNext, ESM), strict types, no emit.
+- Files: PascalCase modules in `src/`; tests colocated as `*.test.ts`.
+- Names: PascalCase for classes/types; camelCase for vars/functions.
+- Imports: ESM, relative paths, no extensions for `src` imports.
+- Indent: 2 spaces; keep lines readable.
 
-## Coding Style & Naming Conventions
-- Language: TypeScript (ESNext, ESM). Strict typing enabled; no emit.
-- Indentation: 2 spaces; max line length by judgment (keep readable).
-- Files: PascalCase for modules (e.g., `FenwickOrderedList.ts`); tests end with `.test.ts` next to the module.
-- Names: classes/types/interfaces in PascalCase; variables/functions in camelCase.
-- Imports: ESM with relative paths (no extension in `src` imports), prefer named exports.
+## Working Style (for agents)
+- Be concise: brief updates, group related actions.
+- Add a short preamble before running tool/terminal actions.
+- Plan when multi‑step: outline 3–6 short steps and update as you go.
+- Share progress: occasional one‑liners on what’s done/next.
+- Prefer bullets; avoid heavy formatting. Use backticks for commands/paths.
+- File references: `path[:line]` (e.g., `src/Table.ts:42`). No URLs/citations.
+- Search fast: use `rg` (ripgrep). Read files in chunks ≤250 lines.
 
-## Testing Guidelines
-- Framework: `bun:test` (`describe`, `it`, `expect`).
-- Colocate tests in `src/` as `*.test.ts` mirroring the module name.
-- Focus on correctness and performance invariants (ordering, range `[min,max)`, no waterfall loading, incremental Fenwick rebuilds).
-- Run: `bun test` (optionally `bun test src/FenwickOrderedList.test.ts`).
+## Editing & Changes
+- Make minimal, surgical diffs; keep style consistent with nearby code.
+- Update or add colocated tests when semantics change.
+- Don’t fix unrelated issues or reformat whole files.
+- Don’t add license headers. Don’t rename files unless required.
+- Use Conventional Commits if asked to commit (e.g., `fix(fenwick): ...`).
 
-## Commit & Pull Request Guidelines
-- Commits: use Conventional Commit style with scopes seen in history, e.g. `feat(bench): ...`, `fix(fenwick): ...`, `perf: ...`, `refactor: ...`.
-- PRs should include:
-  - Clear summary and motivation; link related issues.
-  - Tests for new behavior or bug fixes; update existing tests if semantics change.
-  - Benchmark output for performance‑related changes (paste relevant `bench/` results).
-  - Notes on API/semantics (e.g., scan/range are half‑open `[min, max)`).
+## Testing & Benchmarks
+- Run tests: `bun test`; target a file for focused checks.
+- Invariants to protect:
+  - Ordering correctness and stable scans.
+  - Half‑open ranges `[min, max)` across APIs.
+  - No waterfall IO (load only touched segments/chunks).
+  - Incremental Fenwick updates/rebuilds; copy‑on‑write chunk rotation.
+- Bench when performance‑adjacent and paste results with parameters used.
 
-## Architecture Overview
-- Fenwick structures (`FenwickBase`, `FenwickList`, `FenwickOrderedList`) back columns and tables.
-- Storage abstractions (`Store`, `ChunkingStore`, `Chunks`) handle segment/chunk IO and caching.
-- Tables/Columns compose the primitives for indexed and ordered access.
+## Architecture Snapshot
+- Fenwick: `FenwickBase`, `FenwickList`, `FenwickOrderedList` underpin columns/tables.
+- Storage: `Store` (plus chunking/caching behavior tested in `Chunks.test.ts`).
+- Composition: `Column` and `Table` provide indexed and ordered access.
+
+## PR Expectations
+- Summary and motivation; link related issues.
+- Tests for new behavior; update existing ones if semantics change.
+- Benchmark output for perf changes (include command/params and gist numbers).
+- Note API/semantic impacts (esp. range/scan contracts).
+
+## Message Formatting (chat agents)
+- Use short section headers only when helpful.
+- Bullets with bold keywords are preferred for clarity.
+- Wrap commands, file paths, and identifiers in backticks.
+- Keep responses self‑contained; no external citations or ANSI codes.
+
+## Gotchas
+- Respect ESM import style (no extensions in `src` imports).
+- Keep modules in `src/`; colocate tests next to implementations.
+- Avoid destructive shell actions (e.g., `rm -rf`, history rewrites).
+- Don’t introduce new tooling/config unless explicitly requested.
