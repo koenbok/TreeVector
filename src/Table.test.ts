@@ -6,6 +6,7 @@ import {
   OrderedColumn,
   type IndexedColumnInterface,
 } from "./Column";
+import type { TableMeta } from "./Table";
 
 type Row = { id: number; name: string };
 
@@ -244,10 +245,122 @@ describe("Table (dynamic columns)", () => {
       { id: 1, name: "a", score: 1 },
       { id: 2, name: "b", score: 2 },
     ]);
-    await table.flush();
+    await table.flush("table.meta");
     const rows = await table.range(0, 3);
     expect(rows.map((r) => r.id)).toEqual([1, 2, 3]);
     expect(rows.map((r) => r.name)).toEqual(["a", "b", "c"]);
     expect(rows.map((r) => r.score)).toEqual([1, 2, undefined]);
+  });
+});
+
+describe("Table ACID meta semantics", () => {
+  it("flush(metaKey) persists meta to store and allows reconstruction", async () => {
+    const store = new MemoryStore();
+    const table = new Table<number>(
+      store,
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, { segmentCount: 4, chunkCount: 4 }),
+      },
+      undefined,
+      { segmentCount: 4, chunkCount: 4 },
+    );
+
+    await table.insert([
+      { id: 2, name: "b" },
+      { id: 1, name: "a" },
+      { id: 3, name: "c" },
+    ]);
+
+    const metaKey = "tables/users.meta";
+    await table.flush(metaKey);
+
+    const stored = (await store.get<TableMeta<number>>(metaKey))!;
+    expect(stored.order.key).toBe("id");
+    expect(Object.keys(stored.columns)).toContain("name");
+
+    const rehydrated = new Table<number>(store, stored);
+    const rows = await rehydrated.range(0, 3);
+    expect(rows.map((r) => r.id)).toEqual([1, 2, 3]);
+    expect(rows.map((r) => r.name)).toEqual(["a", "b", "c"]);
+  });
+
+  it("does not update stored meta if any column flush fails (atomic meta commit)", async () => {
+    const store = new MemoryStore();
+    const table = new Table<number>(
+      store,
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, { segmentCount: 4, chunkCount: 4 }),
+      },
+      { name: new IndexedColumn<string>(store, { segmentCount: 4, chunkCount: 4 }) } as unknown as Record<string, IndexedColumnInterface<string>>,
+      { segmentCount: 4, chunkCount: 4 },
+    );
+
+    await table.insert([
+      { id: 1, name: "a" },
+      { id: 2, name: "b" },
+    ]);
+
+    const metaKey = "tables/acids.meta";
+    await table.flush(metaKey);
+    const v1 = (await store.get<TableMeta<number>>(metaKey))!;
+
+    // Replace the name column with a failing implementation that throws on flush
+    const failingCol: IndexedColumnInterface<unknown> = {
+      insertAt: async () => { },
+      range: async () => [],
+      get: async () => undefined,
+      flush: async () => {
+        throw new Error("flush failed");
+      },
+      getMeta: () => ({ segmentCount: 1, chunkCount: 1, segments: [], chunks: [] }),
+      setMeta: () => { },
+    };
+    // Inject failing column
+    (table as unknown as { columns: Record<string, IndexedColumnInterface<unknown>> }).columns["name"] = failingCol;
+
+    await table.insert([{ id: 3, name: "c" }]);
+
+    await expect(table.flush(metaKey)).rejects.toBeTruthy();
+
+    const vAfter = await store.get<TableMeta<number>>(metaKey);
+    expect(vAfter).toEqual(v1); // meta not updated
+  });
+
+  it("setMeta(meta) reinitializes the table to the committed snapshot", async () => {
+    const store = new MemoryStore();
+    const table = new Table<number>(
+      store,
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, { segmentCount: 4, chunkCount: 4 }),
+      },
+      undefined,
+      { segmentCount: 4, chunkCount: 4 },
+    );
+
+    await table.insert([
+      { id: 2, name: "b" },
+      { id: 1, name: "a" },
+    ]);
+    await table.flush("tables/setmeta.meta");
+    const meta = (await store.get<TableMeta<number>>("tables/setmeta.meta"))!;
+
+    // Create a different table, then set meta to reinitialize
+    const other = new Table<number>(
+      store,
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, { segmentCount: 2, chunkCount: 2 }),
+      },
+      { name: new IndexedColumn<string>(store, { segmentCount: 2, chunkCount: 2 }) } as unknown as Record<string, IndexedColumnInterface<string>>,
+      { segmentCount: 2, chunkCount: 2 },
+    );
+    other.setMeta(meta);
+
+    const rows = await other.range(0, 2);
+    expect(rows.map((r) => r.id)).toEqual([1, 2]);
+    expect(rows.map((r) => r.name)).toEqual(["a", "b"]);
   });
 });

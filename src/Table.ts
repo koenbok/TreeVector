@@ -1,23 +1,104 @@
 import {
   IndexedColumn,
+  OrderedColumn,
   type IndexedColumnInterface,
   type OrderedColumnInterface,
 } from "./Column";
 import type { IStore } from "./Store";
+import type {
+  FenwickBaseMeta,
+  BaseSegment,
+} from "./FenwickBase";
 
 type Row = Record<string, unknown>;
 
+type ValueType = "number" | "string";
+
+export type TableMeta<T> = {
+  defaults: { segmentCount: number; chunkCount: number };
+  order: {
+    key: string;
+    valueType: ValueType;
+    meta: FenwickBaseMeta<T, BaseSegment<T> & { min: T; max: T }>;
+  };
+  columns: Record<
+    string,
+    {
+      valueType: ValueType;
+      meta: FenwickBaseMeta<unknown, BaseSegment<unknown>>;
+    }
+  >;
+};
+
 export class Table<T> {
   private columns: Record<string, IndexedColumnInterface<unknown>>;
-  private readonly defaultsegmentCount: number;
-  private readonly defaultchunkCount: number;
+  private defaultsegmentCount: number;
+  private defaultchunkCount: number;
+  private meta?: TableMeta<T>; // committed snapshot, only updated after successful flush
+  private store: IStore;
+  private order!: { key: string; column: OrderedColumnInterface<T> };
 
+  // Overloads: construct from meta OR from explicit columns
+  constructor(store: IStore, meta: TableMeta<T>);
   constructor(
-    private store: IStore,
-    private order: { key: string; column: OrderedColumnInterface<T> },
+    store: IStore,
+    order: { key: string; column: OrderedColumnInterface<T> },
+    columns?: Record<string, IndexedColumnInterface<unknown>>,
+    opts?: { segmentCount?: number; chunkCount?: number },
+  );
+  constructor(
+    store: IStore,
+    orderOrMeta:
+      | TableMeta<T>
+      | { key: string; column: OrderedColumnInterface<T> },
     columns?: Record<string, IndexedColumnInterface<unknown>>,
     opts?: { segmentCount?: number; chunkCount?: number },
   ) {
+    this.store = store;
+    if (Table.isTableMeta(orderOrMeta)) {
+      const meta = orderOrMeta as TableMeta<T>;
+      this.defaultsegmentCount = meta.defaults.segmentCount ?? 8192;
+      this.defaultchunkCount = meta.defaults.chunkCount ?? 0;
+      // Reconstruct order and columns from meta
+      const orderColumn =
+        meta.order.valueType === "number"
+          ? (new OrderedColumn<number>(
+            this.store,
+            meta.order.meta as unknown as FenwickBaseMeta<
+              number,
+              BaseSegment<number> & { min: number; max: number }
+            >,
+          ) as unknown as OrderedColumnInterface<T>)
+          : (new OrderedColumn<string>(
+            this.store,
+            meta.order.meta as unknown as FenwickBaseMeta<
+              string,
+              BaseSegment<string> & { min: string; max: string }
+            >,
+          ) as unknown as OrderedColumnInterface<T>);
+      this.order = { key: meta.order.key, column: orderColumn };
+
+      this.columns = {};
+      for (const [key, info] of Object.entries(meta.columns)) {
+        const col =
+          info.valueType === "number"
+            ? (new IndexedColumn<number>(
+              this.store,
+              info.meta as FenwickBaseMeta<number, BaseSegment<number>>,
+            ) as unknown as IndexedColumnInterface<unknown>)
+            : (new IndexedColumn<string>(
+              this.store,
+              info.meta as FenwickBaseMeta<string, BaseSegment<string>>,
+            ) as unknown as IndexedColumnInterface<unknown>);
+        this.columns[key] = col;
+      }
+      // Set committed meta
+      this.meta = Table.cloneMeta(meta);
+      return;
+    }
+
+    // Legacy signature
+    this.order = orderOrMeta as { key: string; column: OrderedColumnInterface<T> };
     this.columns = columns ?? {};
     this.defaultsegmentCount = opts?.segmentCount ?? 8192;
     this.defaultchunkCount = opts?.chunkCount ?? 0;
@@ -131,11 +212,109 @@ export class Table<T> {
     return rows;
   }
 
-  async flush(): Promise<void> {
+  async flush(metaKey: string): Promise<void> {
     // Flush order column and all other columns in parallel
     await Promise.all([
       this.order.column.flush(),
       ...Object.values(this.columns).map((column) => column.flush()),
     ]);
+    // Only after successful flush, commit a new meta snapshot (and persist if key provided)
+    const snapshot = this.buildMetaSnapshot();
+    await this.store.set<TableMeta<T>>(metaKey, snapshot);
+    this.meta = snapshot;
+  }
+
+  getMeta(): TableMeta<T> {
+    // If we have a committed snapshot, expose it
+    return this.meta ?? this.buildMetaSnapshot();
+  }
+
+  setMeta(meta: TableMeta<T>): void {
+    // Reinitialize from meta directly (no extra state)
+    this.defaultsegmentCount = meta.defaults.segmentCount ?? 8192;
+    this.defaultchunkCount = meta.defaults.chunkCount ?? 0;
+    const orderColumn =
+      meta.order.valueType === "number"
+        ? (new OrderedColumn<number>(
+          this.store,
+          meta.order.meta as unknown as FenwickBaseMeta<
+            number,
+            BaseSegment<number> & { min: number; max: number }
+          >,
+        ) as unknown as OrderedColumnInterface<T>)
+        : (new OrderedColumn<string>(
+          this.store,
+          meta.order.meta as unknown as FenwickBaseMeta<
+            string,
+            BaseSegment<string> & { min: string; max: string }
+          >,
+        ) as unknown as OrderedColumnInterface<T>);
+    this.order = { key: meta.order.key, column: orderColumn };
+    this.columns = {};
+    for (const [key, info] of Object.entries(meta.columns)) {
+      const col =
+        info.valueType === "number"
+          ? (new IndexedColumn<number>(
+            this.store,
+            info.meta as FenwickBaseMeta<number, BaseSegment<number>>,
+          ) as unknown as IndexedColumnInterface<unknown>)
+          : (new IndexedColumn<string>(
+            this.store,
+            info.meta as FenwickBaseMeta<string, BaseSegment<string>>,
+          ) as unknown as IndexedColumnInterface<unknown>);
+      this.columns[key] = col;
+    }
+    this.meta = Table.cloneMeta(meta);
+  }
+
+  private buildMetaSnapshot(): TableMeta<T> {
+    const orderMeta = this.order.column.getMeta();
+    const cols: TableMeta<T>["columns"] = {};
+    for (const [key, column] of Object.entries(this.columns)) {
+      // Infer value type from existing committed meta if available; default to number
+      const vt = (this.meta?.columns?.[key]?.valueType as ValueType | undefined) ?? "number";
+      cols[key] = {
+        valueType: vt,
+        meta: column.getMeta() as unknown as FenwickBaseMeta<
+          unknown,
+          BaseSegment<unknown>
+        >,
+      };
+    }
+    return {
+      defaults: {
+        segmentCount: this.defaultsegmentCount,
+        chunkCount: this.defaultchunkCount,
+      },
+      order: {
+        key: this.order.key,
+        // Keep existing committed type if available; otherwise best-effort infer from first segment min
+        valueType:
+          (this.meta?.order.valueType as ValueType | undefined) ??
+          (orderMeta.segments.length > 0
+            ? (typeof (orderMeta.segments[0] as unknown as { min: unknown }).min === "string"
+              ? "string"
+              : "number")
+            : "number"),
+        meta: orderMeta as unknown as FenwickBaseMeta<
+          T,
+          BaseSegment<T> & { min: T; max: T }
+        >,
+      },
+      columns: cols,
+    } as TableMeta<T>;
+  }
+
+  private static isTableMeta<T>(arg: unknown): arg is TableMeta<T> {
+    return (
+      !!arg &&
+      typeof arg === "object" &&
+      "order" in (arg as Record<string, unknown>) &&
+      "defaults" in (arg as Record<string, unknown>)
+    );
+  }
+
+  private static cloneMeta<T>(meta: TableMeta<T>): TableMeta<T> {
+    return structuredClone(meta) as TableMeta<T>;
   }
 }
