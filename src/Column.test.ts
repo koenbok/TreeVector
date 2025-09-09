@@ -2,18 +2,25 @@ import { describe, it, expect } from "bun:test";
 import {
   type IndexedColumnInterface,
   type OrderedColumnInterface,
-  FenwickOrderedColumn,
-  FenwickColumn,
+  OrderedColumn,
+  IndexedColumn,
 } from "./Column";
 import { MemoryStore } from "./Store";
 
 const SortedColumns: Record<string, () => OrderedColumnInterface<number>> = {
   FenwickOrderedColumn: () =>
-    new FenwickOrderedColumn<number>(new MemoryStore(), { segmentCount: 10, chunkCount: 10 }),
+    new OrderedColumn<number>(new MemoryStore(), {
+      segmentCount: 10,
+      chunkCount: 10,
+    }),
 };
 
 const IndexedColumns: Record<string, () => IndexedColumnInterface<number>> = {
-  FenwickColumn: () => new FenwickColumn<number>(new MemoryStore(), { segmentCount: 10, chunkCount: 10 }),
+  FenwickColumn: () =>
+    new IndexedColumn<number>(new MemoryStore(), {
+      segmentCount: 10,
+      chunkCount: 10,
+    }),
 };
 
 for (const [name, ctor] of Object.entries(SortedColumns)) {

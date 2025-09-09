@@ -1,5 +1,5 @@
 import {
-  FenwickColumn,
+  IndexedColumn,
   type IndexedColumnInterface,
   type OrderedColumnInterface,
 } from "./Column";
@@ -31,7 +31,7 @@ export class Table<T> {
     if (existing) return existing;
     const t = typeof sample;
     if (t === "number") {
-      const col = new FenwickColumn<number>(this.store, {
+      const col = new IndexedColumn<number>(this.store, {
         segmentCount: this.defaultsegmentCount,
         chunkCount: this.defaultchunkCount,
       });
@@ -39,7 +39,7 @@ export class Table<T> {
       return this.columns[key] as IndexedColumnInterface<unknown>;
     }
     if (t === "string") {
-      const col = new FenwickColumn<string>(this.store, {
+      const col = new IndexedColumn<string>(this.store, {
         segmentCount: this.defaultsegmentCount,
         chunkCount: this.defaultchunkCount,
       });

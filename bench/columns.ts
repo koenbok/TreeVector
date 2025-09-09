@@ -1,6 +1,6 @@
 import {
-  FenwickColumn,
-  FenwickOrderedColumn,
+  IndexedColumn,
+  OrderedColumn,
   type IndexedColumnInterface,
   type OrderedColumnInterface,
 } from "../src/Column";
@@ -64,42 +64,45 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx] as number;
 }
 
-function makeHistogram(values: number[], targetBins = 12): { ranges: [number, number][]; counts: number[] } {
-    if (values.length === 0) return { ranges: [], counts: [] };
-    const sorted = [...values].sort((a, b) => a - b);
-    const n = sorted.length;
-    const bins = Math.min(targetBins, Math.max(1, Math.ceil(Math.log2(n + 1))));
-    const counts = new Array<number>(bins).fill(0);
-    const ranges: [number, number][] = new Array(bins);
-    // Quantile-based bins for more meaningful distribution
-    for (let i = 0; i < bins; i++) {
-        const loIdx = Math.floor((i / bins) * (n - 1));
-        const hiIdx = Math.floor(((i + 1) / bins) * (n - 1));
-        const lo = sorted[loIdx] as number;
-        const hi = sorted[hiIdx] as number;
-        ranges[i] = [lo, hi];
-    }
-    // Tally counts by range
-    let bin = 0;
-    for (let i = 0; i < n; i++) {
-        const v = sorted[i] as number;
-        while (bin < bins - 1 && v > (ranges[bin]![1] as number)) bin += 1;
-        counts[bin] = ((counts[bin] ?? 0) as number) + 1;
-    }
-    return { ranges, counts };
+function makeHistogram(
+  values: number[],
+  targetBins = 12,
+): { ranges: [number, number][]; counts: number[] } {
+  if (values.length === 0) return { ranges: [], counts: [] };
+  const sorted = [...values].sort((a, b) => a - b);
+  const n = sorted.length;
+  const bins = Math.min(targetBins, Math.max(1, Math.ceil(Math.log2(n + 1))));
+  const counts = new Array<number>(bins).fill(0);
+  const ranges: [number, number][] = new Array(bins);
+  // Quantile-based bins for more meaningful distribution
+  for (let i = 0; i < bins; i++) {
+    const loIdx = Math.floor((i / bins) * (n - 1));
+    const hiIdx = Math.floor(((i + 1) / bins) * (n - 1));
+    const lo = sorted[loIdx] as number;
+    const hi = sorted[hiIdx] as number;
+    ranges[i] = [lo, hi];
+  }
+  // Tally counts by range
+  let bin = 0;
+  for (let i = 0; i < n; i++) {
+    const v = sorted[i] as number;
+    while (bin < bins - 1 && v > (ranges[bin]![1] as number)) bin += 1;
+    counts[bin] = ((counts[bin] ?? 0) as number) + 1;
+  }
+  return { ranges, counts };
 }
 
-function collectSegmentSizesFromMeta<T>(
-    column: { getMeta(): { segments: { count: number }[] } },
-): number[] {
-    return column.getMeta().segments.map((s) => s.count);
+function collectSegmentSizesFromMeta<T>(column: {
+  getMeta(): { segments: { count: number }[] };
+}): number[] {
+  return column.getMeta().segments.map((s) => s.count);
 }
 
 async function benchOrdered(
-    column: OrderedColumnInterface<number>,
-    values: number[],
-    mode: "append" | "random",
-    store: MemoryStore,
+  column: OrderedColumnInterface<number>,
+  values: number[],
+  mode: "append" | "random",
+  store: MemoryStore,
 ): Promise<void> {
   console.log("\n=== OrderedColumn (FenwickOrderedColumn) ===");
   console.log(
@@ -212,10 +215,10 @@ async function benchOrdered(
 }
 
 async function benchIndexed(
-    column: IndexedColumnInterface<number>,
-    values: number[],
-    mode: "append" | "random",
-    store: MemoryStore,
+  column: IndexedColumnInterface<number>,
+  values: number[],
+  mode: "append" | "random",
+  store: MemoryStore,
 ): Promise<void> {
   console.log("\n=== IndexedColumn (FenwickColumn) ===");
   console.log(`values: ${formatNumber(values.length)} (mode=${mode})`);
@@ -312,7 +315,7 @@ async function main(): Promise<void> {
   const orderedValues = buildValues(TOTAL, DUP_RATE);
   for (const mode of ["append", "random"] as const) {
     const store = new MemoryStore();
-    const ordered = new FenwickOrderedColumn<number>(store, {
+    const ordered = new OrderedColumn<number>(store, {
       segmentCount: MAX_PER_SEGMENT,
       chunkCount: SEGMENTS_PER_CHUNK as number,
     });
@@ -324,7 +327,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < TOTAL; i++) indexedValues[i] = hash32(i);
   for (const mode of ["append", "random"] as const) {
     const store = new MemoryStore();
-    const indexed = new FenwickColumn<number>(store, {
+    const indexed = new IndexedColumn<number>(store, {
       segmentCount: MAX_PER_SEGMENT,
       chunkCount: SEGMENTS_PER_CHUNK as number,
     });

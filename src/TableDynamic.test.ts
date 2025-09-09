@@ -1,14 +1,20 @@
 import { describe, it, expect } from "bun:test";
 import { Table } from "./Table";
 import { MemoryStore } from "./Store";
-import { FenwickOrderedColumn } from "./Column";
+import { OrderedColumn } from "./Column";
 
 describe("Table (dynamic columns)", () => {
   it("auto-creates number and string columns based on row keys", async () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }) },
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, {
+          segmentCount: 8,
+          chunkCount: 0,
+        }),
+      },
       /* columns */ undefined,
       { segmentCount: 8, chunkCount: 0 },
     );
@@ -37,7 +43,13 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }) },
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, {
+          segmentCount: 8,
+          chunkCount: 0,
+        }),
+      },
       undefined,
       { segmentCount: 8, chunkCount: 0 },
     );
@@ -61,7 +73,13 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }) },
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, {
+          segmentCount: 8,
+          chunkCount: 0,
+        }),
+      },
       undefined,
       { segmentCount: 8, chunkCount: 0 },
     );
@@ -71,7 +89,9 @@ describe("Table (dynamic columns)", () => {
     ).rejects.toBeTruthy();
 
     await expect(
-      table.insert([{ id: 2, meta: { a: 1 } as unknown } as unknown as { id: number }]),
+      table.insert([
+        { id: 2, meta: { a: 1 } as unknown } as unknown as { id: number },
+      ]),
     ).rejects.toBeTruthy();
   });
 
@@ -79,7 +99,13 @@ describe("Table (dynamic columns)", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }) },
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, {
+          segmentCount: 8,
+          chunkCount: 0,
+        }),
+      },
       undefined,
       { segmentCount: 4, chunkCount: 0 },
     );
@@ -95,4 +121,3 @@ describe("Table (dynamic columns)", () => {
     expect(rows.map((r) => r.score)).toEqual([1, 2, undefined]);
   });
 });
-

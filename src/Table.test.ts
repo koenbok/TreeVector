@@ -1,7 +1,11 @@
 import { describe, it, expect } from "bun:test";
 import { Table } from "./Table";
 import { MemoryStore } from "./Store";
-import { FenwickColumn, FenwickOrderedColumn, type IndexedColumnInterface } from "./Column";
+import {
+  IndexedColumn,
+  OrderedColumn,
+  type IndexedColumnInterface,
+} from "./Column";
 
 type Row = { id: number; name: string };
 
@@ -10,9 +14,18 @@ describe("Table", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 4, chunkCount: 10 }) },
       {
-        name: new FenwickColumn<number>(store, { segmentCount: 4, chunkCount: 10 }),
+        key: "id",
+        column: new OrderedColumn<number>(store, {
+          segmentCount: 4,
+          chunkCount: 10,
+        }),
+      },
+      {
+        name: new IndexedColumn<number>(store, {
+          segmentCount: 4,
+          chunkCount: 10,
+        }),
       } as unknown as Record<string, IndexedColumnInterface<number>>,
     );
 
@@ -38,9 +51,18 @@ describe("Table", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 4, chunkCount: 10 }) },
       {
-        name: new FenwickColumn<number>(store, { segmentCount: 4, chunkCount: 10 }),
+        key: "id",
+        column: new OrderedColumn<number>(store, {
+          segmentCount: 4,
+          chunkCount: 10,
+        }),
+      },
+      {
+        name: new IndexedColumn<number>(store, {
+          segmentCount: 4,
+          chunkCount: 10,
+        }),
       } as unknown as Record<string, IndexedColumnInterface<number>>,
     );
 
@@ -59,9 +81,18 @@ describe("Table", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 4, chunkCount: 10 }) },
       {
-        name: new FenwickColumn<number>(store, { segmentCount: 4, chunkCount: 10 }),
+        key: "id",
+        column: new OrderedColumn<number>(store, {
+          segmentCount: 4,
+          chunkCount: 10,
+        }),
+      },
+      {
+        name: new IndexedColumn<number>(store, {
+          segmentCount: 4,
+          chunkCount: 10,
+        }),
       } as unknown as Record<string, IndexedColumnInterface<number>>,
     );
 
@@ -81,11 +112,19 @@ describe("Table", () => {
     const store = new MemoryStore();
     const table = new Table<number>(
       store,
-      { key: "id", column: new FenwickOrderedColumn<number>(store, { segmentCount: 4, chunkCount: 10 }) },
-      { name: new FenwickColumn<number>(store, { segmentCount: 4, chunkCount: 10 }) } as unknown as Record<
-        string,
-        IndexedColumnInterface<number>
-      >,
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, {
+          segmentCount: 4,
+          chunkCount: 10,
+        }),
+      },
+      {
+        name: new IndexedColumn<number>(store, {
+          segmentCount: 4,
+          chunkCount: 10,
+        }),
+      } as unknown as Record<string, IndexedColumnInterface<number>>,
     );
 
     await expect(

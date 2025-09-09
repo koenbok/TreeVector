@@ -22,7 +22,5 @@ export interface OrderedColumnInterface<T> {
   setMeta(meta: FenwickBaseMeta<T, BaseSegment<T> & { min: T; max: T }>): void;
 }
 
-
-
-export const FenwickColumn = FenwickList;
-export const FenwickOrderedColumn = FenwickOrderedList;
+export const IndexedColumn = FenwickList;
+export const OrderedColumn = FenwickOrderedList;

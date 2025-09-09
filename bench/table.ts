@@ -1,7 +1,7 @@
 import { Table } from "../src/Table";
 import {
-  FenwickOrderedColumn,
-  FenwickColumn,
+  OrderedColumn,
+  IndexedColumn,
   type IndexedColumnInterface,
   type OrderedColumnInterface,
 } from "../src/Column";
@@ -115,11 +115,28 @@ async function main(): Promise<void> {
       const label = `fenwick(seg=${seg},chunk=${chk})`;
       const res = await runScenario(
         label,
-        (store) => new FenwickOrderedColumn<number>(store, { segmentCount: seg, chunkCount: chk, chunkPrefix: "ochunk_" }),
+        (store) =>
+          new OrderedColumn<number>(store, {
+            segmentCount: seg,
+            chunkCount: chk,
+            chunkPrefix: "ochunk_",
+          }),
         () => ({
-          a: new FenwickColumn<number>(new MemoryStore(), { segmentCount: seg, chunkCount: chk, chunkPrefix: "chunk_" }),
-          b: new FenwickColumn<number>(new MemoryStore(), { segmentCount: seg, chunkCount: chk, chunkPrefix: "chunk_" }),
-          c: new FenwickColumn<number>(new MemoryStore(), { segmentCount: seg, chunkCount: chk, chunkPrefix: "chunk_" }),
+          a: new IndexedColumn<number>(new MemoryStore(), {
+            segmentCount: seg,
+            chunkCount: chk,
+            chunkPrefix: "chunk_",
+          }),
+          b: new IndexedColumn<number>(new MemoryStore(), {
+            segmentCount: seg,
+            chunkCount: chk,
+            chunkPrefix: "chunk_",
+          }),
+          c: new IndexedColumn<number>(new MemoryStore(), {
+            segmentCount: seg,
+            chunkCount: chk,
+            chunkPrefix: "chunk_",
+          }),
         }),
         rows,
       );
