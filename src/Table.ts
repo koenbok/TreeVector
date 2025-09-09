@@ -221,7 +221,7 @@ export class Table<T> {
     // Only after successful flush, commit a new meta snapshot (and persist if key provided)
     const snapshot = this.buildMetaSnapshot();
     await this.store.set<TableMeta<T>>(metaKey, snapshot);
-    this.meta = snapshot;
+    this.meta = Table.cloneMeta(snapshot);
   }
 
   getMeta(): TableMeta<T> {
