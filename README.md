@@ -12,6 +12,12 @@ To run:
 bun run src/index.ts
 ```
 
+To run the HTTP server:
+
+```bash
+bun run src/server/index.ts
+```
+
 This project was created using `bun init` in bun v1.2.19. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
 
 ## Semantics
