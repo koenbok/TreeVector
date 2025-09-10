@@ -129,15 +129,10 @@ export class Table<T> {
       bucket[key] = col as unknown as IndexedColumnInterface<number>;
       // Backfill prior rows with undefined so indices align with order length
       const toPad = Math.max(0, prefillLength ?? 0);
-      if (toPad > 0) {
-        const promises: Promise<void>[] = [];
-        for (let i = 0; i < toPad; i++) {
-          promises.push((bucket[key] as unknown as IndexedColumnInterface<string | number>).insertAt(999999999, undefined as unknown as number));
-        }
-        if (promises.length > 0) {
-          for (const p of promises) await p;
-        }
-      }
+      await (bucket[key] as unknown as IndexedColumnInterface<number>).padEnd(
+        toPad,
+        undefined as unknown as number,
+      );
       return bucket[key] as unknown as IndexedColumnInterface<string | number>;
     }
     const col = new IndexedColumn<string>(this.store, {
@@ -147,15 +142,10 @@ export class Table<T> {
     bucket[key] = col as unknown as IndexedColumnInterface<string>;
     // Backfill prior rows with undefined so indices align with order length
     const toPad = Math.max(0, prefillLength ?? 0);
-    if (toPad > 0) {
-      const promises: Promise<void>[] = [];
-      for (let i = 0; i < toPad; i++) {
-        promises.push((bucket[key] as unknown as IndexedColumnInterface<string | number>).insertAt(999999999, undefined as unknown as string));
-      }
-      if (promises.length > 0) {
-        for (const p of promises) await p;
-      }
-    }
+    await (bucket[key] as unknown as IndexedColumnInterface<string>).padEnd(
+      toPad,
+      undefined as unknown as string,
+    );
     return bucket[key] as unknown as IndexedColumnInterface<string | number>;
   }
 
@@ -233,24 +223,25 @@ export class Table<T> {
 
   async get(index: number): Promise<Row> {
     const typedEntries: Array<[
-      ValueType,
       string,
       IndexedColumnInterface<string | number>,
-    ]> = [];
-    for (const [key, col] of Object.entries(this.columns.number)) {
-      if (key === this.order.key) continue;
-      typedEntries.push(["number", key, col as unknown as IndexedColumnInterface<string | number>]);
-    }
-    for (const [key, col] of Object.entries(this.columns.string)) {
-      if (key === this.order.key) continue;
-      typedEntries.push(["string", key, col as unknown as IndexedColumnInterface<string | number>]);
-    }
+    ]> = (
+      [
+        ...Object.entries(this.columns.number),
+        ...Object.entries(this.columns.string),
+      ] as Array<[
+        string,
+        IndexedColumnInterface<string | number>,
+      ]>
+    ).filter(([key]) => key !== this.order.key);
 
-    const values = await Promise.all(typedEntries.map(([, , column]) => column.get(index)));
+    const values = await Promise.all(
+      typedEntries.map(([, column]) => column.get(index)),
+    );
 
     const row: Row = {};
     for (let i = 0; i < typedEntries.length; i++) {
-      const [, key] = typedEntries[i]!;
+      const key = typedEntries[i]![0];
       const v = values[i];
       if (v !== undefined) row[key] = v as unknown as T;
     }
@@ -264,22 +255,23 @@ export class Table<T> {
     const orderValues = await this.order.column.range(a, b);
 
     const typedEntries: Array<[
-      ValueType,
       string,
       IndexedColumnInterface<string | number>,
-    ]> = [];
-    for (const [key, col] of Object.entries(this.columns.number)) {
-      if (key === this.order.key) continue;
-      typedEntries.push(["number", key, col as unknown as IndexedColumnInterface<string | number>]);
-    }
-    for (const [key, col] of Object.entries(this.columns.string)) {
-      if (key === this.order.key) continue;
-      typedEntries.push(["string", key, col as unknown as IndexedColumnInterface<string | number>]);
-    }
+    ]> = (
+      [
+        ...Object.entries(this.columns.number),
+        ...Object.entries(this.columns.string),
+      ] as Array<[
+        string,
+        IndexedColumnInterface<string | number>,
+      ]>
+    ).filter(([key]) => key !== this.order.key);
 
-    const typedRanges: Array<[ValueType, string, (string | number)[]]> = await Promise.all(
-      typedEntries.map(async ([vt, key, column]) => [
-        vt,
+    const typedRanges: Array<[
+      string,
+      (string | number)[],
+    ]> = await Promise.all(
+      typedEntries.map(async ([key, column]) => [
         key,
         (await column.range(a, b)) as unknown as (string | number)[],
       ]),
@@ -291,7 +283,7 @@ export class Table<T> {
     for (let i = 0; i < len; i++) {
       const row: Row = {};
       row[this.order.key] = orderValues[i] as unknown as T;
-      for (const [, key, arr] of typedRanges) {
+      for (const [key, arr] of typedRanges) {
         const v = arr[i];
         if (v !== undefined) row[key] = v as unknown as T;
       }

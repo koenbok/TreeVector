@@ -379,6 +379,7 @@ describe("Table ACID meta semantics", () => {
       },
       getMeta: () => ({ segmentCount: 1, chunkCount: 1, segments: [], chunks: [] }),
       setMeta: () => { },
+      padEnd: async () => { },
     };
     // Inject failing column into string bucket
     (table as unknown as { columns: { string: Record<string, IndexedColumnInterface<unknown>>; number: Record<string, IndexedColumnInterface<unknown>> } }).columns.string["name"] = failingCol;

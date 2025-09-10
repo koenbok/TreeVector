@@ -95,6 +95,7 @@ describe("Table ACID: meta persistence and atomicity", () => {
             },
             getMeta: () => ({ segmentCount: 1, chunkCount: 1, segments: [], chunks: [] }),
             setMeta: () => { },
+            padEnd: async () => { },
         };
         (table as unknown as { columns: { string: Record<string, IndexedColumnInterface<unknown>>; number: Record<string, IndexedColumnInterface<unknown>> } }).columns.string["name"] = failingCol;
 

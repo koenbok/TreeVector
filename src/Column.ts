@@ -9,6 +9,8 @@ export interface IndexedColumnInterface<T> {
   flush(): Promise<string[]>;
   getMeta(): FenwickBaseMeta<T, BaseSegment<T>>;
   setMeta(meta: FenwickBaseMeta<T, BaseSegment<T>>): void;
+  // Append-count padding helper (default filler is undefined)
+  padEnd(count: number, filler?: T): Promise<void>;
 }
 
 export interface OrderedColumnInterface<T> {
