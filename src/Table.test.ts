@@ -23,11 +23,16 @@ describe("Table", () => {
         }),
       },
       {
-        name: new IndexedColumn<number>(store, {
-          segmentCount: 4,
-          chunkCount: 10,
-        }),
-      } as unknown as Record<string, IndexedColumnInterface<number>>,
+        number: {
+          name: new IndexedColumn<number>(store, {
+            segmentCount: 4,
+            chunkCount: 10,
+          }),
+        },
+      } as unknown as {
+        string?: Record<string, IndexedColumnInterface<string>>;
+        number?: Record<string, IndexedColumnInterface<number>>;
+      },
     );
 
     // Insert three rows
@@ -42,7 +47,7 @@ describe("Table", () => {
     const r1 = await table.get(1);
     const r2 = await table.get(2);
 
-    // get() only returns non-order columns (here: name)
+    // get() only returns non-order columns (here: name) as flat values
     expect(r0).toEqual({ name: 100 });
     expect(r1).toEqual({ name: 200 });
     expect(r2).toEqual({ name: 300 });
@@ -60,11 +65,16 @@ describe("Table", () => {
         }),
       },
       {
-        name: new IndexedColumn<number>(store, {
-          segmentCount: 4,
-          chunkCount: 10,
-        }),
-      } as unknown as Record<string, IndexedColumnInterface<number>>,
+        number: {
+          name: new IndexedColumn<number>(store, {
+            segmentCount: 4,
+            chunkCount: 10,
+          }),
+        },
+      } as unknown as {
+        string?: Record<string, IndexedColumnInterface<string>>;
+        number?: Record<string, IndexedColumnInterface<number>>;
+      },
     );
 
     await table.insert([
@@ -90,11 +100,16 @@ describe("Table", () => {
         }),
       },
       {
-        name: new IndexedColumn<number>(store, {
-          segmentCount: 4,
-          chunkCount: 10,
-        }),
-      } as unknown as Record<string, IndexedColumnInterface<number>>,
+        number: {
+          name: new IndexedColumn<number>(store, {
+            segmentCount: 4,
+            chunkCount: 10,
+          }),
+        },
+      } as unknown as {
+        string?: Record<string, IndexedColumnInterface<string>>;
+        number?: Record<string, IndexedColumnInterface<number>>;
+      },
     );
 
     await table.insert([
@@ -131,6 +146,54 @@ describe("Table", () => {
     await expect(
       table.insert([{ name: 123 } as unknown as Row]),
     ).rejects.toBeTruthy();
+  });
+});
+
+describe("Table (mixed types heavy)", () => {
+  it("handles mixed string/number/null/undefined in same column and preserves values", async () => {
+    const store = new MemoryStore();
+    const table = new Table<number>(
+      store,
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, { segmentCount: 8, chunkCount: 0 }),
+      },
+      undefined,
+      { segmentCount: 8, chunkCount: 0 },
+    );
+
+    const N = 100;
+    const input: Array<{ id: number; value?: string | number | null }> = [];
+    for (let i = 1; i <= N; i++) {
+      const id = N - i + 1; // insert in reverse to exercise ordering
+      let v: string | number | null | undefined;
+      if (i % 10 === 0) v = null; // becomes undefined
+      else if (i % 10 === 1) v = undefined;
+      else if (i % 2 === 0) v = i; // number
+      else v = `s${i}`; // string
+      input.push({ id, value: v as any });
+    }
+
+    await table.insert(input as any);
+
+    const rows = await table.range(0);
+    expect(rows.length).toBe(N);
+    // rows are sorted by id ascending; compute expected per id
+    for (let id = 1; id <= N; id++) {
+      const i2 = N - id + 1;
+      let expected: string | number | undefined;
+      if (i2 % 10 === 0) expected = undefined;
+      else if (i2 % 10 === 1) expected = undefined;
+      else if (i2 % 2 === 0) expected = i2;
+      else expected = `s${i2}`;
+      expect(rows[id - 1]?.id).toBe(id);
+      expect(rows[id - 1]?.value).toBe(expected);
+    }
+
+    // Meta should contain both typed columns for 'value'
+    const meta = table.getMeta();
+    expect(Object.keys(meta.columns.number)).toContain("value");
+    expect(Object.keys(meta.columns.string)).toContain("value");
   });
 });
 
@@ -277,7 +340,7 @@ describe("Table ACID meta semantics", () => {
 
     const stored = (await store.get<TableMeta<number>>(metaKey))!;
     expect(stored.order.key).toBe("id");
-    expect(Object.keys(stored.columns)).toContain("name");
+    expect(Object.keys(stored.columns.string)).toContain("name");
 
     const rehydrated = new Table<number>(store, stored);
     const rows = await rehydrated.range(0, 3);
@@ -293,7 +356,7 @@ describe("Table ACID meta semantics", () => {
         key: "id",
         column: new OrderedColumn<number>(store, { segmentCount: 4, chunkCount: 4 }),
       },
-      { name: new IndexedColumn<string>(store, { segmentCount: 4, chunkCount: 4 }) } as unknown as Record<string, IndexedColumnInterface<string>>,
+      { string: { name: new IndexedColumn<string>(store, { segmentCount: 4, chunkCount: 4 }) } } as unknown as { string?: Record<string, IndexedColumnInterface<string>>; number?: Record<string, IndexedColumnInterface<number>> },
       { segmentCount: 4, chunkCount: 4 },
     );
 
@@ -317,8 +380,8 @@ describe("Table ACID meta semantics", () => {
       getMeta: () => ({ segmentCount: 1, chunkCount: 1, segments: [], chunks: [] }),
       setMeta: () => { },
     };
-    // Inject failing column
-    (table as unknown as { columns: Record<string, IndexedColumnInterface<unknown>> }).columns["name"] = failingCol;
+    // Inject failing column into string bucket
+    (table as unknown as { columns: { string: Record<string, IndexedColumnInterface<unknown>>; number: Record<string, IndexedColumnInterface<unknown>> } }).columns.string["name"] = failingCol;
 
     await table.insert([{ id: 3, name: "c" }]);
 
@@ -354,7 +417,7 @@ describe("Table ACID meta semantics", () => {
         key: "id",
         column: new OrderedColumn<number>(store, { segmentCount: 2, chunkCount: 2 }),
       },
-      { name: new IndexedColumn<string>(store, { segmentCount: 2, chunkCount: 2 }) } as unknown as Record<string, IndexedColumnInterface<string>>,
+      { string: { name: new IndexedColumn<string>(store, { segmentCount: 2, chunkCount: 2 }) } } as unknown as { string?: Record<string, IndexedColumnInterface<string>>; number?: Record<string, IndexedColumnInterface<number>> },
       { segmentCount: 2, chunkCount: 2 },
     );
     other.setMeta(meta);
@@ -363,4 +426,34 @@ describe("Table ACID meta semantics", () => {
     expect(rows.map((r) => r.id)).toEqual([1, 2]);
     expect(rows.map((r) => r.name)).toEqual(["a", "b"]);
   });
+});
+
+describe("Table (rows echo)", () => {
+  it("rows out equal rows in (null becomes undefined)", async () => {
+    const store = new MemoryStore();
+    const table = new Table<number>(
+      store,
+      {
+        key: "id",
+        column: new OrderedColumn<number>(store, { segmentCount: 4, chunkCount: 4 }),
+      },
+      undefined,
+      { segmentCount: 4, chunkCount: 4 },
+    );
+
+    const input = [
+      { id: 2, name: "b", score: 2, note: null as any },
+      { id: 1, name: "a", score: 1 },
+      { id: 3, name: undefined as any, score: "3" },
+    ];
+
+    await table.insert(input);
+    const out = await table.range(0);
+
+    // Sorted by id: 1,2,3
+    expect(out[0]).toEqual({ id: 1, name: "a", score: 1 });
+    expect(out[1]).toEqual({ id: 2, name: "b", score: 2, note: undefined });
+    expect(out[2]).toEqual({ id: 3, name: undefined, score: "3" });
+  });
+
 });

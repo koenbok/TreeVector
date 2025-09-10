@@ -21,17 +21,17 @@ export type TableMeta<T> = {
     valueType: ValueType;
     meta: FenwickBaseMeta<T, BaseSegment<T> & { min: T; max: T }>;
   };
-  columns: Record<
-    string,
-    {
-      valueType: ValueType;
-      meta: FenwickBaseMeta<unknown, BaseSegment<unknown>>;
-    }
-  >;
+  columns: {
+    string: Record<string, FenwickBaseMeta<string, BaseSegment<string>>>;
+    number: Record<string, FenwickBaseMeta<number, BaseSegment<number>>>;
+  };
 };
 
 export class Table<T> {
-  private columns: Record<string, IndexedColumnInterface<unknown>>;
+  private columns: {
+    string: Record<string, IndexedColumnInterface<string>>;
+    number: Record<string, IndexedColumnInterface<number>>;
+  };
   private defaultsegmentCount: number;
   private defaultchunkCount: number;
   private meta?: TableMeta<T>; // committed snapshot, only updated after successful flush
@@ -43,7 +43,10 @@ export class Table<T> {
   constructor(
     store: IStore,
     order: { key: string; column: OrderedColumnInterface<T> },
-    columns?: Record<string, IndexedColumnInterface<unknown>>,
+    columns?: {
+      string?: Record<string, IndexedColumnInterface<string>>;
+      number?: Record<string, IndexedColumnInterface<number>>;
+    },
     opts?: { segmentCount?: number; chunkCount?: number },
   );
   constructor(
@@ -51,7 +54,10 @@ export class Table<T> {
     orderOrMeta:
       | TableMeta<T>
       | { key: string; column: OrderedColumnInterface<T> },
-    columns?: Record<string, IndexedColumnInterface<unknown>>,
+    columns?: {
+      string?: Record<string, IndexedColumnInterface<string>>;
+      number?: Record<string, IndexedColumnInterface<number>>;
+    },
     opts?: { segmentCount?: number; chunkCount?: number },
   ) {
     this.store = store;
@@ -77,20 +83,20 @@ export class Table<T> {
             >,
           ) as unknown as OrderedColumnInterface<T>);
       this.order = { key: meta.order.key, column: orderColumn };
-
-      this.columns = {};
-      for (const [key, info] of Object.entries(meta.columns)) {
-        const col =
-          info.valueType === "number"
-            ? (new IndexedColumn<number>(
-              this.store,
-              info.meta as FenwickBaseMeta<number, BaseSegment<number>>,
-            ) as unknown as IndexedColumnInterface<unknown>)
-            : (new IndexedColumn<string>(
-              this.store,
-              info.meta as FenwickBaseMeta<string, BaseSegment<string>>,
-            ) as unknown as IndexedColumnInterface<unknown>);
-        this.columns[key] = col;
+      this.columns = { string: {}, number: {} };
+      for (const [key, info] of Object.entries(meta.columns.number)) {
+        const col = new IndexedColumn<number>(
+          this.store,
+          info as FenwickBaseMeta<number, BaseSegment<number>>,
+        );
+        this.columns.number[key] = col as IndexedColumnInterface<number>;
+      }
+      for (const [key, info] of Object.entries(meta.columns.string)) {
+        const col = new IndexedColumn<string>(
+          this.store,
+          info as FenwickBaseMeta<string, BaseSegment<string>>,
+        );
+        this.columns.string[key] = col as IndexedColumnInterface<string>;
       }
       // Set committed meta
       this.meta = Table.cloneMeta(meta);
@@ -99,35 +105,58 @@ export class Table<T> {
 
     // Legacy signature
     this.order = orderOrMeta as { key: string; column: OrderedColumnInterface<T> };
-    this.columns = columns ?? {};
+    this.columns = {
+      string: { ...(columns?.string ?? {}) },
+      number: { ...(columns?.number ?? {}) },
+    };
     this.defaultsegmentCount = opts?.segmentCount ?? 8192;
     this.defaultchunkCount = opts?.chunkCount ?? 0;
   }
 
-  private ensureColumnFor(
+  private async ensureTypedColumn(
     key: string,
-    sample: unknown,
-  ): IndexedColumnInterface<unknown> {
-    const existing = this.columns[key];
-    if (existing) return existing;
-    const t = typeof sample;
-    if (t === "number") {
+    valueType: ValueType,
+    prefillLength?: number,
+  ): IndexedColumnInterface<string | number> {
+    const bucket = valueType === "string" ? this.columns.string : this.columns.number;
+    const existing = bucket[key];
+    if (existing) return existing as IndexedColumnInterface<string | number>;
+    if (valueType === "number") {
       const col = new IndexedColumn<number>(this.store, {
         segmentCount: this.defaultsegmentCount,
         chunkCount: this.defaultchunkCount,
       });
-      this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
-      return this.columns[key] as IndexedColumnInterface<unknown>;
+      bucket[key] = col as unknown as IndexedColumnInterface<number>;
+      // Backfill prior rows with undefined so indices align with order length
+      const toPad = Math.max(0, prefillLength ?? 0);
+      if (toPad > 0) {
+        const promises: Promise<void>[] = [];
+        for (let i = 0; i < toPad; i++) {
+          promises.push((bucket[key] as unknown as IndexedColumnInterface<string | number>).insertAt(999999999, undefined as unknown as number));
+        }
+        if (promises.length > 0) {
+          for (const p of promises) await p;
+        }
+      }
+      return bucket[key] as unknown as IndexedColumnInterface<string | number>;
     }
-    if (t === "string") {
-      const col = new IndexedColumn<string>(this.store, {
-        segmentCount: this.defaultsegmentCount,
-        chunkCount: this.defaultchunkCount,
-      });
-      this.columns[key] = col as unknown as IndexedColumnInterface<unknown>;
-      return this.columns[key] as IndexedColumnInterface<unknown>;
+    const col = new IndexedColumn<string>(this.store, {
+      segmentCount: this.defaultsegmentCount,
+      chunkCount: this.defaultchunkCount,
+    });
+    bucket[key] = col as unknown as IndexedColumnInterface<string>;
+    // Backfill prior rows with undefined so indices align with order length
+    const toPad = Math.max(0, prefillLength ?? 0);
+    if (toPad > 0) {
+      const promises: Promise<void>[] = [];
+      for (let i = 0; i < toPad; i++) {
+        promises.push((bucket[key] as unknown as IndexedColumnInterface<string | number>).insertAt(999999999, undefined as unknown as string));
+      }
+      if (promises.length > 0) {
+        for (const p of promises) await p;
+      }
     }
-    throw new Error(`Unsupported column type for key "${key}": ${t}`);
+    return bucket[key] as unknown as IndexedColumnInterface<string | number>;
   }
 
   async insert(rows: Row[]): Promise<void> {
@@ -136,28 +165,57 @@ export class Table<T> {
       if (value === undefined) {
         throw new Error(`Row is missing key ${this.order.key}`);
       }
+      // capture current length before inserting into the order column
+      const orderMetaBefore = this.order.column.getMeta();
+      const preExistingRows = orderMetaBefore.segments.reduce((sum, s) => sum + (s.count ?? 0), 0);
       const index = await this.order.column.insert(value as T);
 
       // Insert non-order columns in parallel for this row.
-      // 1) Insert values for keys present in this row (creating columns as needed)
-      // 2) Pad any pre-existing columns that are missing in this row with undefined
+      // 1) Insert values for keys present in this row (creating typed columns as needed)
+      // 2) Pad any pre-existing typed columns that are missing in this row with undefined
       const tasks: Array<Promise<void>> = [];
       const rowKeys = new Set(Object.keys(row));
+      const insertedTyped = new Set<string>(); // `${type}:${key}`
 
       // 1) Handle keys present in this row (except the order key)
       for (const rowKey of rowKeys) {
         if (rowKey === this.order.key) continue;
         const v = row[rowKey];
-        const col = this.ensureColumnFor(rowKey, v);
+        if (v === null || v === undefined) {
+          continue; // treat null as undefined (missing)
+        }
+        const t = typeof v;
+        if (t !== "number" && t !== "string") {
+          throw new Error(`Unsupported column type for key "${rowKey}": ${t}`);
+        }
+        const vt = t as ValueType;
+        const col = await this.ensureTypedColumn(rowKey, vt, preExistingRows);
+        insertedTyped.add(`${vt}:${rowKey}`);
         tasks.push(col.insertAt(index, v as unknown as T));
       }
 
-      // 2) Pad missing pre-existing columns
-      for (const key in this.columns) {
-        if (key === this.order.key) continue;
-        if (!rowKeys.has(key)) {
-          const col = this.columns[key] as IndexedColumnInterface<unknown>;
-          tasks.push(col.insertAt(index, undefined as unknown as T));
+      // 2) Pad missing pre-existing typed columns (only number/string buckets)
+      const padBuckets: Array<[
+        ValueType,
+        Record<string, IndexedColumnInterface<string | number>>,
+      ]> = [
+          [
+            "number",
+            this.columns.number as unknown as Record<string, IndexedColumnInterface<string | number>>,
+          ],
+          [
+            "string",
+            this.columns.string as unknown as Record<string, IndexedColumnInterface<string | number>>,
+          ],
+        ];
+      for (const [vt, bucket] of padBuckets) {
+        for (const key in bucket) {
+          if (key === this.order.key) continue;
+          const sig = `${vt}:${key}`;
+          if (!insertedTyped.has(sig)) {
+            const col = bucket[key] as IndexedColumnInterface<string | number>;
+            tasks.push(col.insertAt(index, undefined as unknown as T));
+          }
         }
       }
 
@@ -166,15 +224,27 @@ export class Table<T> {
   }
 
   async get(index: number): Promise<Row> {
-    const columnEntries = Object.entries(this.columns);
-    const values = await Promise.all(
-      columnEntries.map(([, column]) => column.get(index)),
-    );
+    const typedEntries: Array<[
+      ValueType,
+      string,
+      IndexedColumnInterface<string | number>,
+    ]> = [];
+    for (const [key, col] of Object.entries(this.columns.number)) {
+      if (key === this.order.key) continue;
+      typedEntries.push(["number", key, col as unknown as IndexedColumnInterface<string | number>]);
+    }
+    for (const [key, col] of Object.entries(this.columns.string)) {
+      if (key === this.order.key) continue;
+      typedEntries.push(["string", key, col as unknown as IndexedColumnInterface<string | number>]);
+    }
+
+    const values = await Promise.all(typedEntries.map(([, , column]) => column.get(index)));
 
     const row: Row = {};
-    for (let i = 0; i < columnEntries.length; i++) {
-      const key = columnEntries[i]?.[0]!;
-      row[key] = values[i];
+    for (let i = 0; i < typedEntries.length; i++) {
+      const [, key] = typedEntries[i]!;
+      const v = values[i];
+      if (v !== undefined) row[key] = v as unknown as T;
     }
     return row;
   }
@@ -184,28 +254,38 @@ export class Table<T> {
     const b = a + (limit ?? Number.POSITIVE_INFINITY);
 
     const orderValues = await this.order.column.range(a, b);
-    const otherEntries: [string, T[]][] = await Promise.all(
-      Object.entries(this.columns).map(async ([key, column]) => [
+
+    const typedEntries: Array<[
+      ValueType,
+      string,
+      IndexedColumnInterface<string | number>,
+    ]> = [];
+    for (const [key, col] of Object.entries(this.columns.number)) {
+      if (key === this.order.key) continue;
+      typedEntries.push(["number", key, col as unknown as IndexedColumnInterface<string | number>]);
+    }
+    for (const [key, col] of Object.entries(this.columns.string)) {
+      if (key === this.order.key) continue;
+      typedEntries.push(["string", key, col as unknown as IndexedColumnInterface<string | number>]);
+    }
+
+    const typedRanges: Array<[ValueType, string, (string | number)[]]> = await Promise.all(
+      typedEntries.map(async ([vt, key, column]) => [
+        vt,
         key,
-        (await column.range(a, b)) as T[],
+        (await column.range(a, b)) as unknown as (string | number)[],
       ]),
     );
-    const columns: Record<string, T[]> = Object.fromEntries([
-      [this.order.key, orderValues as T[]],
-      ...otherEntries,
-    ]);
 
-    const orderArr = columns[this.order.key] ?? [];
-    const len = orderArr.length;
+    const len = orderValues.length;
     const rows: Row[] = [];
 
     for (let i = 0; i < len; i++) {
       const row: Row = {};
-      row[this.order.key] = orderArr[i] as unknown as T;
-      for (const key of Object.keys(columns)) {
-        if (key === this.order.key) continue;
-        const valuesForKey = columns[key] as T[];
-        row[key] = valuesForKey[i] as unknown as T;
+      row[this.order.key] = orderValues[i] as unknown as T;
+      for (const [, key, arr] of typedRanges) {
+        const v = arr[i];
+        if (v !== undefined) row[key] = v as unknown as T;
       }
       rows.push(row);
     }
@@ -216,7 +296,8 @@ export class Table<T> {
     // Flush order column and all other columns in parallel
     await Promise.all([
       this.order.column.flush(),
-      ...Object.values(this.columns).map((column) => column.flush()),
+      ...Object.values(this.columns.number).map((column) => column.flush()),
+      ...Object.values(this.columns.string).map((column) => column.flush()),
     ]);
     // Only after successful flush, commit a new meta snapshot (and persist if key provided)
     const snapshot = this.buildMetaSnapshot();
@@ -250,36 +331,36 @@ export class Table<T> {
           >,
         ) as unknown as OrderedColumnInterface<T>);
     this.order = { key: meta.order.key, column: orderColumn };
-    this.columns = {};
-    for (const [key, info] of Object.entries(meta.columns)) {
-      const col =
-        info.valueType === "number"
-          ? (new IndexedColumn<number>(
-            this.store,
-            info.meta as FenwickBaseMeta<number, BaseSegment<number>>,
-          ) as unknown as IndexedColumnInterface<unknown>)
-          : (new IndexedColumn<string>(
-            this.store,
-            info.meta as FenwickBaseMeta<string, BaseSegment<string>>,
-          ) as unknown as IndexedColumnInterface<unknown>);
-      this.columns[key] = col;
+    this.columns = { string: {}, number: {} };
+    for (const [key, info] of Object.entries(meta.columns.number)) {
+      const col = new IndexedColumn<number>(
+        this.store,
+        info as FenwickBaseMeta<number, BaseSegment<number>>,
+      );
+      this.columns.number[key] = col as IndexedColumnInterface<number>;
+    }
+    for (const [key, info] of Object.entries(meta.columns.string)) {
+      const col = new IndexedColumn<string>(
+        this.store,
+        info as FenwickBaseMeta<string, BaseSegment<string>>,
+      );
+      this.columns.string[key] = col as IndexedColumnInterface<string>;
     }
     this.meta = Table.cloneMeta(meta);
   }
 
   private buildMetaSnapshot(): TableMeta<T> {
     const orderMeta = this.order.column.getMeta();
-    const cols: TableMeta<T>["columns"] = {};
-    for (const [key, column] of Object.entries(this.columns)) {
-      // Infer value type from existing committed meta if available; default to number
-      const vt = (this.meta?.columns?.[key]?.valueType as ValueType | undefined) ?? "number";
-      cols[key] = {
-        valueType: vt,
-        meta: column.getMeta() as unknown as FenwickBaseMeta<
-          unknown,
-          BaseSegment<unknown>
-        >,
-      };
+    const cols: TableMeta<T>["columns"] = { string: {}, number: {} };
+    for (const [key, column] of Object.entries(this.columns.number)) {
+      (cols.number as Record<string, FenwickBaseMeta<number, BaseSegment<number>>>)[
+        key
+      ] = column.getMeta() as unknown as FenwickBaseMeta<number, BaseSegment<number>>;
+    }
+    for (const [key, column] of Object.entries(this.columns.string)) {
+      (cols.string as Record<string, FenwickBaseMeta<string, BaseSegment<string>>>)[
+        key
+      ] = column.getMeta() as unknown as FenwickBaseMeta<string, BaseSegment<string>>;
     }
     return {
       defaults: {
@@ -292,7 +373,8 @@ export class Table<T> {
         valueType:
           (this.meta?.order.valueType as ValueType | undefined) ??
           (orderMeta.segments.length > 0
-            ? (typeof (orderMeta.segments[0] as unknown as { min: unknown }).min === "string"
+            ? ((typeof (orderMeta.segments[0] as unknown as { min: unknown }).min ===
+              "string")
               ? "string"
               : "number")
             : "number"),
