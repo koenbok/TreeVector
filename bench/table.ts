@@ -119,23 +119,19 @@ async function main(): Promise<void> {
           new OrderedColumn<number>(store, {
             segmentCount: seg,
             chunkCount: chk,
-            chunkPrefix: "ochunk_",
           }),
         () => ({
           a: new IndexedColumn<number>(new MemoryStore(), {
             segmentCount: seg,
             chunkCount: chk,
-            chunkPrefix: "chunk_",
           }),
           b: new IndexedColumn<number>(new MemoryStore(), {
             segmentCount: seg,
             chunkCount: chk,
-            chunkPrefix: "chunk_",
           }),
           c: new IndexedColumn<number>(new MemoryStore(), {
             segmentCount: seg,
             chunkCount: chk,
-            chunkPrefix: "chunk_",
           }),
         }),
         rows,

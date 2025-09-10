@@ -95,7 +95,7 @@ async function main(): Promise<void> {
   const store = new MemoryStore();
   const list = new FenwickOrderedList<number>(
     store,
-    { segmentCount: MAX_PER_SEGMENT, chunkCount: SEGMENTS_PER_CHUNK as number, chunkPrefix: "ochunk_" },
+    { segmentCount: MAX_PER_SEGMENT, chunkCount: SEGMENTS_PER_CHUNK as number },
     (a, b) => (a < b ? -1 : a > b ? 1 : 0),
   );
 

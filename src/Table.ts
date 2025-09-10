@@ -117,7 +117,7 @@ export class Table<T> {
     key: string,
     valueType: ValueType,
     prefillLength?: number,
-  ): IndexedColumnInterface<string | number> {
+  ): Promise<IndexedColumnInterface<string | number>> {
     const bucket = valueType === "string" ? this.columns.string : this.columns.number;
     const existing = bucket[key];
     if (existing) return existing as IndexedColumnInterface<string | number>;
@@ -191,7 +191,11 @@ export class Table<T> {
         const vt = t as ValueType;
         const col = await this.ensureTypedColumn(rowKey, vt, preExistingRows);
         insertedTyped.add(`${vt}:${rowKey}`);
-        tasks.push(col.insertAt(index, v as unknown as T));
+        if (vt === "number") {
+          tasks.push((col as unknown as IndexedColumnInterface<number>).insertAt(index, v as number));
+        } else {
+          tasks.push((col as unknown as IndexedColumnInterface<string>).insertAt(index, v as string));
+        }
       }
 
       // 2) Pad missing pre-existing typed columns (only number/string buckets)
@@ -214,7 +218,11 @@ export class Table<T> {
           const sig = `${vt}:${key}`;
           if (!insertedTyped.has(sig)) {
             const col = bucket[key] as IndexedColumnInterface<string | number>;
-            tasks.push(col.insertAt(index, undefined as unknown as T));
+            if (vt === "number") {
+              tasks.push((col as unknown as IndexedColumnInterface<number>).insertAt(index, undefined as unknown as number));
+            } else {
+              tasks.push((col as unknown as IndexedColumnInterface<string>).insertAt(index, undefined as unknown as string));
+            }
           }
         }
       }
