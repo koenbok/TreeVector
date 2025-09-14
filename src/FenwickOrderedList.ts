@@ -102,22 +102,15 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
       if (this.cmp(s.min, max) >= 0) break;
       j += 1;
     }
-    // load candidates in parallel
-    await Promise.all(
-      this.meta.segments
-        .slice(i, j)
-        .map((s) => this.ensureSegmentLoaded(s as Segment<T>)),
-    );
-    // now collect results sequentially
-    while (i < j) {
-      const s = this.meta.segments[i] as Segment<T>;
-      const arr = this.getOrCreateArraySync(s, true);
-      // [min, max) semantics: lower_bound(min), lower_bound(max)
+    // load all candidate arrays in parallel
+    const segs = this.meta.segments.slice(i, j) as Segment<T>[];
+    const arrays = await Promise.all(segs.map((s) => this.getReadOnlyArrayForSegment(s)));
+    for (let k = 0; k < arrays.length; k++) {
+      const arr = arrays[k] as T[];
       const start = this.lowerBoundInArray(arr, min);
       const end = this.lowerBoundInArray(arr, max);
       if (start < end) out.push(...arr.slice(start, end));
       if (end < arr.length) return out; // ended inside this segment
-      i += 1;
     }
     return out;
   }
@@ -139,7 +132,8 @@ export class FenwickOrderedList<T> extends FenwickBase<T, Segment<T>> {
     segment: Segment<T>,
   ): Promise<void> {
     await super.ensureSegmentLoaded(segment);
-    const arr = this.getOrCreateArraySync(segment, true);
+    // Use read-only view to compute min/max without copying
+    const arr = await this.getReadOnlyArrayForSegment(segment);
     if (arr.length > 0) {
       segment.min = arr[0] as T;
       segment.max = arr[arr.length - 1] as T;

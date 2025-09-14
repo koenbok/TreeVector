@@ -64,12 +64,4 @@ export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
 
     this.dirty.add(seg);
   }
-
-  async padEnd(count: number, filler?: T): Promise<void> {
-    if (count <= 0) return;
-    // Fast path: continuously append to the last segment
-    for (let i = 0; i < count; i++) {
-      await this.insertAt(this.totalCount, filler as T);
-    }
-  }
 }

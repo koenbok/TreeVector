@@ -40,6 +40,10 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     this.setMeta(meta);
   }
 
+  length(): number {
+    return this.totalCount;
+  }
+
   setMeta(meta: FenwickBaseMeta<T, S>): void {
     this.meta = meta;
     if (!Array.isArray(this.meta.chunks)) this.meta.chunks = [];
@@ -60,8 +64,7 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     if (index < 0 || index >= this.totalCount) return undefined;
     const { segIndex, localIndex } = this.findByIndex(index);
     const seg = this.meta.segments[segIndex] as S;
-    await this.ensureSegmentLoaded(seg);
-    const arr = this.getOrCreateArraySync(seg, true);
+    const arr = await this.getReadOnlyArrayForSegment(seg);
     return arr[localIndex] as T;
   }
 
@@ -75,20 +78,14 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     if (b > this.totalCount) b = this.totalCount;
     let { segIndex, localIndex } = this.findByIndex(a);
     let remaining = b - a;
-    // Load all required segments in parallel before slicing
     const { segIndex: endSegIndex } = this.findByIndex(b - 1);
-    await Promise.all(
-      this.meta.segments
-        .slice(segIndex, endSegIndex + 1)
-        .map((s) => this.ensureSegmentLoaded(s as S)),
-    );
-    while (remaining > 0 && segIndex < this.meta.segments.length) {
-      const seg = this.meta.segments[segIndex] as S;
-      const arr = this.getOrCreateArraySync(seg, true);
+    const segs = this.meta.segments.slice(segIndex, endSegIndex + 1) as S[];
+    const arrays = await Promise.all(segs.map((s) => this.getReadOnlyArrayForSegment(s)));
+    for (let k = 0; remaining > 0 && k < arrays.length; k++) {
+      const arr = arrays[k] as T[];
       const take = Math.min(remaining, Math.max(0, arr.length - localIndex));
       if (take > 0) out.push(...arr.slice(localIndex, localIndex + take));
       remaining -= take;
-      segIndex += 1;
       localIndex = 0;
     }
     return out;
@@ -302,6 +299,18 @@ export abstract class FenwickBase<T, S extends BaseSegment<T>> {
     const copy = arr.slice() as unknown as T[];
     if (create || copy.length > 0) this.segmentArrays.set(segment, copy);
     return copy;
+  }
+
+  protected async getReadOnlyArrayForSegment(segment: S): Promise<T[]> {
+    const inMem = this.segmentArrays.get(segment);
+    if (inMem) return inMem as T[];
+    const idx = this.getSegmentIndex(segment);
+    if (idx < 0) return [] as T[];
+    const chunkSize = this.effectiveChunkSize();
+    const cidx = Math.floor(idx / chunkSize);
+    const chunk = await this.getOrLoadChunk(cidx);
+    const pos = idx % chunkSize;
+    return (chunk[pos] ?? []) as T[];
   }
 
   private async getOrLoadChunk(chunkIndex: number): Promise<T[][]> {

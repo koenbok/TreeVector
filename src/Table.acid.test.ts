@@ -74,7 +74,7 @@ describe("Table ACID: meta persistence and atomicity", () => {
                 key: "id",
                 column: new OrderedColumn<number>(store, { segmentCount: 4, chunkCount: 4 }),
             },
-            { string: { name: new IndexedColumn<string>(store, { segmentCount: 4, chunkCount: 4 }) } } as unknown as { string?: Record<string, IndexedColumnInterface<string>>; number?: Record<string, IndexedColumnInterface<number>> },
+            { name: { type: "string", column: new IndexedColumn<string>(store, { segmentCount: 4, chunkCount: 4 }) } },
             { segmentCount: 4, chunkCount: 4 },
         );
         await table.insert([
@@ -93,11 +93,11 @@ describe("Table ACID: meta persistence and atomicity", () => {
             flush: async () => {
                 throw new Error("flush failed");
             },
+            length: () => 0,
             getMeta: () => ({ segmentCount: 1, chunkCount: 1, segments: [], chunks: [] }),
             setMeta: () => { },
-            padEnd: async () => { },
         };
-        (table as unknown as { columns: { string: Record<string, IndexedColumnInterface<unknown>>; number: Record<string, IndexedColumnInterface<unknown>> } }).columns.string["name"] = failingCol;
+        (table as unknown as { columns: Record<string, { type: string; col: IndexedColumnInterface<unknown> }> }).columns["name"] = { type: "string", col: failingCol } as any;
 
         await table.insert([{ id: 3, name: "c" }]);
         await expect(table.flush(key)).rejects.toBeTruthy();

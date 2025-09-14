@@ -6,11 +6,10 @@ export interface IndexedColumnInterface<T> {
   insertAt(index: number, value: T): Promise<void>;
   range(min: number, max: number): Promise<T[]>;
   get(index: number): Promise<T | undefined>;
+  length(): number;
   flush(): Promise<string[]>;
   getMeta(): FenwickBaseMeta<T, BaseSegment<T>>;
   setMeta(meta: FenwickBaseMeta<T, BaseSegment<T>>): void;
-  // Append-count padding helper (default filler is undefined)
-  padEnd(count: number, filler?: T): Promise<void>;
 }
 
 export interface OrderedColumnInterface<T> {
@@ -19,6 +18,7 @@ export interface OrderedColumnInterface<T> {
   scan(min: T, max: T): Promise<T[]>;
   get(index: number): Promise<T | undefined>;
   getIndex(value: T): Promise<number>;
+  length(): number;
   flush(): Promise<string[]>;
   getMeta(): FenwickBaseMeta<T, BaseSegment<T> & { min: T; max: T }>;
   setMeta(meta: FenwickBaseMeta<T, BaseSegment<T> & { min: T; max: T }>): void;
