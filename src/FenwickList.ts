@@ -121,10 +121,8 @@ export class FenwickList<T> extends FenwickBase<T, Segment<T>> {
 
     // Convert to original-array coordinates (before any insertions): oldIdx = idx - rank
     const mapped: Array<{ oldIdx: number; val: T | undefined; rank: number }> = new Array(pairs.length);
-    let groupStart = 0;
     for (let i = 0; i < pairs.length; i++) {
-      if (i === 0 || pairs[i]!.idx !== pairs[i - 1]!.idx) groupStart = i;
-      const oldIdx = Math.max(0, Math.min(this.totalCount, (pairs[i]!.idx as number) - groupStart));
+      const oldIdx = Math.max(0, Math.min(this.totalCount, (pairs[i]!.idx as number) - i));
       mapped[i] = { oldIdx, val: pairs[i]!.val, rank: pairs[i]!.rank as number };
     }
 

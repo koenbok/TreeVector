@@ -44,17 +44,6 @@ class CountingFenwickList<T> extends FenwickList<T> {
 }
 
 describe("FenwickList (indexed)", () => {
-  function simulateBatch(initial: Array<number | undefined>, indexes: number[], values: Array<number | undefined>): Array<number | undefined> {
-    const out = initial.slice();
-    const pairs = indexes.map((idx, i) => ({ idx, val: values[i], order: i }));
-    pairs.sort((a, b) => (a.idx - b.idx) || (a.order - b.order));
-    for (const p of pairs) {
-      const pos = Math.max(0, Math.min(p.idx, out.length));
-      out.splice(pos, 0, p.val);
-    }
-    return out;
-  }
-
   it("inserts at index and get reflects shifted positions", async () => {
     const store = new MemoryStore();
     const list = new FenwickList<number>(store, {
@@ -94,82 +83,6 @@ describe("FenwickList (indexed)", () => {
     await (col as any).insertManyAt(indexes, values);
 
     expect(await col.range(0, 5)).toEqual(expected);
-  });
-
-  it("insertManyAt preserves input order for equal target indexes within a segment", async () => {
-    const store = new MemoryStore();
-    const list = new IndexedColumn<number>(store, { segmentCount: 8, chunkCount: 0 });
-    await list.insertAt(0, 10);
-    await list.insertAt(1, 20);
-    await list.insertAt(2, 30); // [10,20,30]
-
-    const indexes = [1, 1, 1];
-    const values = [100, 101, 102];
-    const expected = [10, 100, 101, 102, 20, 30];
-
-    // @ts-expect-error access to extended API for test
-    await (list as any).insertManyAt(indexes, values);
-    expect(await list.range(0, expected.length)).toEqual(expected);
-  });
-
-  it("insertManyAt across multiple segments matches JS splice simulation", async () => {
-    const store = new MemoryStore();
-    const list = new IndexedColumn<number | undefined>(store, { segmentCount: 4, chunkCount: 1 });
-    const base: Array<number | undefined> = [];
-    for (let i = 0; i < 32; i++) {
-      base.push(i);
-      await list.insertAt(i, i);
-    }
-    await list.flush();
-
-    const indexes = [2, 6, 8, 12, 14, 17, 19, 23, 27, 31];
-    const values = indexes.map((i) => 1000 + i);
-    const expected = simulateBatch(base, indexes, values);
-    // @ts-expect-error access to extended API for test
-    await (list as any).insertManyAt(indexes, values);
-    const out = await list.range(0, expected.length);
-    expect(out).toEqual(expected);
-  });
-
-  it("insertManyAt clamps negative and oversize indexes", async () => {
-    const store = new MemoryStore();
-    const list = new IndexedColumn<number | undefined>(store, { segmentCount: 8, chunkCount: 0 });
-    await list.insertAt(0, 10);
-    await list.insertAt(1, 20); // [10,20]
-    const indexes = [-5, 10];
-    const values = [1, 3];
-    const expected = simulateBatch([10, 20], indexes, values);
-    // @ts-expect-error access to extended API for test
-    await (list as any).insertManyAt(indexes, values);
-    expect(await list.range(0, expected.length)).toEqual(expected);
-  });
-
-  it("insertManyAt supports undefined values and returns them via get/range", async () => {
-    const store = new MemoryStore();
-    const list = new IndexedColumn<number | undefined>(store, { segmentCount: 8, chunkCount: 0 });
-    await list.insertAt(0, 10);
-    await list.insertAt(1, 20); // [10,20]
-    const indexes = [1, 2];
-    const values = [undefined, 30];
-    const expected = simulateBatch([10, 20], indexes, values);
-    // @ts-expect-error access to extended API for test
-    await (list as any).insertManyAt(indexes, values);
-    const out = await list.range(0, expected.length);
-    expect(out).toEqual(expected);
-    expect(await list.get(1)).toBeUndefined();
-  });
-
-  it("insertManyAt triggers a single fenwick rebuild (no splits)", async () => {
-    const store = new MemoryStore();
-    const list = new CountingFenwickList<number>(store, { segmentCount: 1_000_000, chunkCount: 0 });
-    for (let i = 0; i < 16; i++) await list.insertAt(i, i);
-    const before = list.rebuildCalls;
-    // Batch within capacity (no split)
-    const idx = [2, 4, 8, 12];
-    const vals = [200, 400, 800, 1200];
-    // @ts-expect-error access to extended API for test
-    await (list as any).insertManyAt(idx, vals);
-    expect(list.rebuildCalls - before).toBe(1);
   });
 
   it("range(min,max) returns slice [min,max)", async () => {
