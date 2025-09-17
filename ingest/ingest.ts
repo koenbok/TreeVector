@@ -88,7 +88,9 @@ const readDataFiles = async (dataDir: string): Promise<string[]> => {
   const files = (await readdir(dataDir))
     .filter((f) => f.endsWith(".jsonl.gz"))
     .map((name) => {
-      const num = Number.parseInt(name.split(".")[0], 10);
+      const dot = name.indexOf(".");
+      const base = dot === -1 ? name : name.slice(0, dot);
+      const num = Number.parseInt(base, 10);
       if (Number.isNaN(num)) {
         throw new Error(`Invalid file name: ${name}`);
       }
@@ -123,7 +125,8 @@ const processFile = async (
     );
 
     await table.insert(batch);
-    await table.flush("test");
+    // Commit after each batch to avoid growing dirty state and to persist chunks incrementally
+    await table.flush("ingest.meta");
 
     // Performance metrics
     const now = Date.now();
@@ -195,7 +198,7 @@ const ingest = async (opts: IngestOptions): Promise<void> => {
 /* -------------------------------------------------------------------------- */
 
 async function main() {
-  const dataDir = join(import.meta.dirname, "project_published_7m");
+  const dataDir = join(import.meta.dir, "project_published_7m");
   const sortColumn = "data_timestamp";
   const storeDir = `data/ingest-${Date.now()}`;
   // Redis URL will be determined by environment variables (VALKEY_ENDPOINT, VALKEY_PORT, VALKEY_TLS)
@@ -210,7 +213,15 @@ async function main() {
   // // const brotliStore = new BrotliStore(fileStore);
   // // const queueStore = new QueueStore(brotliStore, queue);
   const store = new MemoryStore();
-  const table = new Table<number>(store, { key: sortColumn, column: new OrderedColumn<number>(store, { segmentCount: 200_000 }) });
+  const table = new Table<number>(
+    store,
+    {
+      key: sortColumn,
+      column: new OrderedColumn<number>(store, { segmentCount: 8096, chunkCount: 200_000 }),
+    },
+    /* columns */ undefined,
+    /* opts for non-order columns */ { segmentCount: 8096, chunkCount: 200_000 },
+  );
 
   await ingest({ dataDir, table, batchSize: 100_000 });
 }

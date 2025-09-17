@@ -4,6 +4,7 @@ import type { FenwickBaseMeta, BaseSegment } from "./FenwickBase";
 
 export interface IndexedColumnInterface<T> {
   insertAt(index: number, value: T): Promise<void>;
+  insertManyAt(indexes: number[], values: Array<T | undefined>): Promise<void>;
   range(min: number, max: number): Promise<T[]>;
   get(index: number): Promise<T | undefined>;
   length(): number;

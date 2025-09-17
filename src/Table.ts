@@ -123,48 +123,119 @@ export class Table<T> {
   }
 
   async insert(rows: Row[]): Promise<void> {
-    for (const row of rows) {
+    if (!rows.length) return;
+
+    // 1) Compute order indexes once in input order
+    const indexes: number[] = new Array<number>(rows.length);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] as Row;
       const value = row[this.order.key];
       if (value === undefined) {
         throw new Error(`Row is missing key ${this.order.key}`);
       }
-      const index = await this.order.column.insert(value as T);
+      indexes[i] = await this.order.column.insert(value as T);
+    }
 
-      // Insert values for keys present in this row (creating typed columns as needed)
-      const tasks: Array<Promise<void>> = [];
+    // 2) Snapshot pre-existing typed columns (excluding order key)
+    const preExistingEntries: Array<[
+      string,
+      { type: ValueType; col: IndexedColumnInterface<string | number> },
+    ]> = Object.entries(this.columns)
+      .filter(([key]) => key !== this.order.key)
+      .map(([key, spec]) => [key, spec as unknown as { type: ValueType; col: IndexedColumnInterface<string | number> }]);
 
-      // Handle keys present in this row (except the order key)
-      for (const rowKey of Object.keys(row)) {
-        if (rowKey === this.order.key) continue;
-        const v = row[rowKey];
-        if (v === null || v === undefined) {
-          continue; // treat null as undefined (missing)
+    // 3) Bulk insert per pre-existing column using computed indexes
+    for (const [key, spec] of preExistingEntries) {
+      const isNumber = (spec as unknown as { type: ValueType }).type === "number";
+      const col = (spec as unknown as { col: IndexedColumnInterface<string | number> }).col;
+      const vals: Array<string | number | undefined> = new Array(rows.length);
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i] as Row;
+        const present = Object.prototype.hasOwnProperty.call(row, key);
+        const raw = present ? row[key] : undefined;
+        vals[i] = raw === null ? undefined : (raw as unknown as (string | number | undefined));
+      }
+      // Prefer bulk path if available
+      if (typeof (col as any).insertManyAt === "function") {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        await (col as any).insertManyAt(indexes, vals);
+      } else {
+        for (let i = 0; i < rows.length; i++) {
+          const v = vals[i];
+          const idx = indexes[i] as number;
+          if (isNumber)
+            // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+            await (col as unknown as IndexedColumnInterface<number>).insertAt(idx, (v as unknown) as number);
+          else
+            // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+            await (col as unknown as IndexedColumnInterface<string>).insertAt(idx, (v as unknown) as string);
         }
-        const t = typeof v;
+      }
+    }
+
+    // 4) Handle columns first seen in this batch, in a single pass preserving row order
+    const preExistingKeys = new Set(preExistingEntries.map(([k]) => k));
+    const candidateNewKeys = new Set<string>();
+    for (const row of rows) {
+      for (const k of Object.keys(row)) {
+        if (k === this.order.key) continue;
+        if (preExistingKeys.has(k)) continue;
+        candidateNewKeys.add(k);
+      }
+    }
+
+    const createdNew = new Map<string, { type: ValueType; col: IndexedColumnInterface<string | number> }>();
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] as Row;
+      const idx = indexes[i] as number;
+
+      // 4a) For already created new columns, insert row value or undefined to maintain alignment
+      for (const [k, spec] of createdNew) {
+        const isNum = spec.type === "number";
+        const has = Object.prototype.hasOwnProperty.call(row, k);
+        const raw = has ? row[k] : undefined;
+        const v = raw === null ? undefined : (raw as unknown);
+        if (typeof (spec.col as any).insertManyAt === "function") {
+          // fallback to single insert path if bulk not used in this micro-step
+          if (isNum)
+            // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+            await (spec.col as unknown as IndexedColumnInterface<number>).insertAt(idx, (v as unknown) as number);
+          else
+            // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+            await (spec.col as unknown as IndexedColumnInterface<string>).insertAt(idx, (v as unknown) as string);
+        } else {
+          if (isNum)
+            // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+            await (spec.col as unknown as IndexedColumnInterface<number>).insertAt(idx, (v as unknown) as number);
+          else
+            // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+            await (spec.col as unknown as IndexedColumnInterface<string>).insertAt(idx, (v as unknown) as string);
+        }
+      }
+
+      // 4b) Create columns newly seen on this row and insert their values
+      for (const k of Object.keys(row)) {
+        if (k === this.order.key) continue;
+        if (!candidateNewKeys.has(k)) continue;
+        if (createdNew.has(k)) continue;
+        const raw = row[k];
+        if (raw === null || raw === undefined) continue; // defer creation until we see a concrete value
+        const t = typeof raw;
         if (t !== "number" && t !== "string") {
-          throw new Error(`Unsupported column type for key "${rowKey}": ${t}`);
+          throw new Error(`Unsupported column type for key "${k}": ${t}`);
         }
         const vt = t as ValueType;
-        const col = await this.ensureTypedColumn(rowKey, vt);
-        if (vt === "number") {
-          tasks.push((col as unknown as IndexedColumnInterface<number>).insertAt(index, v as number));
-        } else {
-          tasks.push((col as unknown as IndexedColumnInterface<string>).insertAt(index, v as string));
-        }
-      }
-
-      // For pre-existing typed columns not present in this row, insert undefined at the index to maintain alignment
-      for (const [key, spec] of Object.entries(this.columns)) {
-        if (key === this.order.key) continue;
-        if (key in row) continue;
-        const col = (spec as unknown as { type: ValueType; col: IndexedColumnInterface<string | number> }).col;
-        if ((spec as unknown as { type: ValueType }).type === "number")
-          tasks.push((col as unknown as IndexedColumnInterface<number>).insertAt(index, undefined as unknown as number));
+        const col = await this.ensureTypedColumn(k, vt);
+        const entry = { type: vt, col } as unknown as { type: ValueType; col: IndexedColumnInterface<string | number> };
+        createdNew.set(k, entry);
+        if (vt === "number")
+          // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+          await (col as unknown as IndexedColumnInterface<number>).insertAt(idx, (raw as unknown) as number);
         else
-          tasks.push((col as unknown as IndexedColumnInterface<string>).insertAt(index, undefined as unknown as string));
+          // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
+          await (col as unknown as IndexedColumnInterface<string>).insertAt(idx, (raw as unknown) as string);
       }
-
-      await Promise.all(tasks);
     }
   }
 
