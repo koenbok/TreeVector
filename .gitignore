@@ -43,3 +43,6 @@ ehthumbs.db
 .env.local
 .env.production
 .bench_before/
+
+
+*.gz

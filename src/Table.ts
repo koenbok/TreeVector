@@ -128,16 +128,13 @@ export class Table<T> {
       if (value === undefined) {
         throw new Error(`Row is missing key ${this.order.key}`);
       }
-      // capture current length before inserting into the order column
-      const preExistingRows = this.order.column.length();
       const index = await this.order.column.insert(value as T);
 
       // Insert values for keys present in this row (creating typed columns as needed)
       const tasks: Array<Promise<void>> = [];
-      const rowKeys = new Set(Object.keys(row));
 
       // Handle keys present in this row (except the order key)
-      for (const rowKey of rowKeys) {
+      for (const rowKey of Object.keys(row)) {
         if (rowKey === this.order.key) continue;
         const v = row[rowKey];
         if (v === null || v === undefined) {
@@ -159,7 +156,7 @@ export class Table<T> {
       // For pre-existing typed columns not present in this row, insert undefined at the index to maintain alignment
       for (const [key, spec] of Object.entries(this.columns)) {
         if (key === this.order.key) continue;
-        if (rowKeys.has(key)) continue;
+        if (key in row) continue;
         const col = (spec as unknown as { type: ValueType; col: IndexedColumnInterface<string | number> }).col;
         if ((spec as unknown as { type: ValueType }).type === "number")
           tasks.push((col as unknown as IndexedColumnInterface<number>).insertAt(index, undefined as unknown as number));
